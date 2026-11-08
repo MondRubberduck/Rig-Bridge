@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rig Bridge: one-click modular control rigs for Blender</title>
+<meta name="description" content="Rig Bridge is a free Blender add-on that builds Unreal-style modular control rigs in one click for Mixamo, Unreal Engine, Daz, Character Creator and 16 more skeleton standards.">
+<meta property="og:title" content="Rig Bridge: one-click modular control rigs for Blender">
+<meta property="og:description" content="Import a character, click Compile, retarget. Mixamo, UE5, Daz, CC/AccuRIG and more. Free, GPL.">
+<meta property="og:image" content="https://mondrubberduck.github.io/Rig-Bridge/media/hero.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{--bg:#141518;--panel:#1d1f24;--line:#2c2f36;--text:#e7e9ee;--muted:#9aa1ad;--accent:#f0a030;--accent2:#4aa3ff}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--accent2);text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+  header{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(20,21,24,.92);backdrop-filter:blur(8px);z-index:5}
+  header .wrap{display:flex;align-items:center;gap:24px;height:58px}
+  .logo{font-weight:700;letter-spacing:.3px;color:var(--text)} .logo b{color:var(--accent)}
+  nav{display:flex;gap:18px;margin-left:auto;font-size:15px} nav a{color:var(--muted)}
+  .hero{padding:56px 0 24px}
+  h1{font-size:clamp(32px,5vw,54px);line-height:1.08;margin:0 0 14px}
+  h1 span{color:var(--accent)}
+  .lead{font-size:clamp(17px,2vw,20px);color:var(--muted);max-width:780px;margin:0 0 26px}
+  .btns{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:34px}
+  .btn{display:inline-block;padding:12px 20px;border-radius:8px;font-weight:600;border:1px solid var(--line);color:var(--text);background:var(--panel)}
+  .btn.primary{background:var(--accent);color:#1a1205;border-color:var(--accent)}
+  .btn:hover{text-decoration:none;filter:brightness(1.08)}
+  video,.shot{width:100%;border-radius:10px;border:1px solid var(--line);background:#000;display:block}
+  .cap{color:var(--muted);font-size:14px;margin:8px 0 0}
+  section{padding:54px 0;border-top:1px solid var(--line)}
+  h2{font-size:30px;margin:0 0 8px} .sub{color:var(--muted);margin:0 0 28px;max-width:820px}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .step h3{margin:12px 0 4px;font-size:19px} .step p{margin:0;color:var(--muted);font-size:15px}
+  .num{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#1a1205;font-weight:700;margin-right:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .card h3{margin:0 0 10px} .card ul{margin:0;padding-left:20px;color:var(--muted)} .card li{margin:4px 0} .card li b{color:var(--text)}
+  table{width:100%;border-collapse:collapse;font-size:15px;background:var(--panel);border-radius:12px;overflow:hidden}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)} th{color:var(--muted);font-weight:600}
+  td.ok{color:#7fd77f;font-variant-numeric:tabular-nums}
+  .compare{display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .compare div{padding:18px 20px} .compare div+div{border-left:1px solid var(--line)}
+  .compare h4{margin:0 0 6px;color:var(--muted);font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:.6px}
+  code{background:#0f1013;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:14px}
+  footer{border-top:1px solid var(--line);padding:30px 0;color:var(--muted);font-size:14px}
+  @media (max-width:860px){.steps,.grid2,.compare{grid-template-columns:1fr}.compare div+div{border-left:0;border-top:1px solid var(--line)} nav{display:none}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <a class="logo" href="#">Rig <b>Bridge</b></a>
+  <nav><a href="#how">How it works</a><a href="#standards">Standards</a><a href="#modules">Modules</a><a href="#tested">Tested</a><a href="https://github.com/MondRubberduck/Rig-Bridge">GitHub</a></nav>
+</div></header>
+
+<main>
+<div class="wrap hero">
+  <h1>One-click <span>control rigs</span><br>for any game skeleton.</h1>
+  <p class="lead">A free Blender add-on modelled on Unreal Engine's Modular Control Rig. Import a Mixamo, Unreal, Daz or Character Creator character and click <b>Compile</b>. You get an animator-friendly FK/IK rig that drives the original bones and leaves them unchanged, so the result still exports to the engine.</p>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/MondRubberduck/Rig-Bridge/releases/latest">Download the latest release</a>
+    <a class="btn" href="https://github.com/MondRubberduck/Rig-Bridge">Source on GitHub</a>
+    <a class="btn" href="https://github.com/MondRubberduck/Bulletproof-Retarget">Companion: Bulletproof Retarget</a>
+  </div>
+  <video src="media/tester_demo.mp4" poster="media/tester_demo_poster.jpg" autoplay muted loop playsinline></video>
+  <p class="cap">One P2M animation, played by five imported FBX characters: two Mixamo, AccuRIG, Character Creator and Unreal Engine 5. Each is driven only by its own Rig Bridge control rig.</p>
+</div>
+
+<section id="how"><div class="wrap">
+  <h2>Import, Compile, Retarget</h2>
+  <p class="sub">That's the whole workflow. Rig Bridge does the rigging. The separate <a href="https://github.com/MondRubberduck/Bulletproof-Retarget">Bulletproof Retarget</a> add-on does the retargeting and bakes the result straight onto the rig's controls.</p>
+  <div class="steps">
+    <div class="step"><img class="shot" src="media/1_import_detect.jpg" alt="Imported UE5 character showing socket rings" loading="lazy">
+      <h3><span class="num">1</span>Import</h3><p><i>File ▸ Import ▸ FBX.</i> Sockets appear on the skeleton, each showing the module it suggests.</p></div>
+    <div class="step"><img class="shot" src="media/2_compiled.jpg" alt="Compiled control rig, Unreal Engine 5 detected with 41 modules" loading="lazy">
+      <h3><span class="num">2</span>Compile</h3><p>The skeleton standard is detected (here Unreal Engine 5, 100%, 41 modules), then the rig is placed and built in a few seconds.</p></div>
+    <div class="step"><img class="shot" src="media/3_retarget_panel.jpg" alt="Bulletproof Retarget panel with Bake to Control Rig" loading="lazy">
+      <h3><span class="num">3</span>Retarget</h3><p>Pick the character or its rig as <i>Target</i> and click <b>Retarget Animation</b>. Both FK and IK controls are keyed on every frame.</p></div>
+  </div>
+  <p></p>
+  <img class="shot" src="media/4_baked_on_rig.jpg" alt="UE5 character in the same pose as the P2M source, keys on the control rig" loading="lazy">
+  <p class="cap">After step 3, the UE5 character's control rig carries the P2M animation: keys on <code>Armature_rig</code>, with the IK/FK switch working anywhere in the clip.</p>
+</div></section>
+
+<section id="standards"><div class="wrap">
+  <h2>20 skeleton standards, recognised automatically</h2>
+  <p class="sub">The skeleton definitions are the same ones Bulletproof Retarget uses, so both add-ons agree on what a skeleton is. Anything unknown falls back to topology detection, and you can save your own profiles as JSON. Existing control rigs (P2M, generated Rigify, Auto-Rig Pro) are recognised and left alone.</p>
+  <div class="chips">
+    <span class="chip">Mixamo</span><span class="chip">Unreal Engine 4</span><span class="chip">Unreal Engine 5</span><span class="chip">UEFN</span><span class="chip">MetaHuman</span>
+    <span class="chip">Character Creator</span><span class="chip">ActorCore</span><span class="chip">AccuRIG</span><span class="chip">Daz Genesis 3</span><span class="chip">Daz Genesis 8</span>
+    <span class="chip">Daz Genesis 9</span><span class="chip">VRoid</span><span class="chip">VRM / Unity Humanoid</span><span class="chip">Rigify exports</span><span class="chip">Auto-Rig Pro exports</span>
+    <span class="chip">HumanIK / MotionBuilder</span><span class="chip">OptiTrack</span><span class="chip">CMU BVH</span><span class="chip">3ds Max Biped</span><span class="chip">VRChat</span><span class="chip">MMD</span><span class="chip">RenderPeople</span>
+  </div>
+</div></section>
+
+<section id="modules"><div class="wrap">
+  <h2>Modular, like Unreal's Modular Control Rig</h2>
+  <p class="sub">Modules snap onto sockets. Their connectors fill themselves in: the leg finds its toe, the piston its rod, the eyes their pair. Mirror, duplicate, remove, then Compile again at any time. The rig is rebuilt in place and keeps its animation.</p>
+  <div class="grid2">
+    <div class="card"><h3>Body (Rigify backend)</h3><ul>
+      <li><b>Spine, Neck/Head, Root</b>: exact on multi-bone necks (UE5, CC, Daz)</li>
+      <li><b>Arm, Leg</b>: IK/FK with foot roll; IK stretch is off by default so game bone lengths are kept</li>
+      <li><b>Shoulder, Finger, Palm, FK Bone, Tentacle</b></li>
+      <li>Twist and corrective bones are driven the way Unreal drives them</li></ul></div>
+    <div class="card"><h3>Secondary &amp; mechanical (native)</h3><ul>
+      <li><b>Tail</b>: curl master, harmonic wave, optional dynamics</li>
+      <li><b>Dyn. Chain</b>: hair, ponytails, antennae</li>
+      <li><b>Cape</b>: chains simulated as cloth, with colliders</li>
+      <li><b>Piston, Aim</b> (eyes follow the head), <b>IK / FK Chain</b>, <b>Control</b></li>
+      <li>Custom modules in Python, detection profiles in JSON</li></ul></div>
+  </div>
+  <p></p>
+  <div class="compare">
+    <div><h4>Bake to Control Rig</h4>Any skeleton animation (mocap, a retarget, an FBX clip) becomes keys on the controls: FK arms + IK legs, full IK or full FK, with exact IK poles on every frame.</div>
+    <div><h4>Bake to Skeleton</h4>Back to plain bone keys, for FBX export to Unreal or Unity or as a retarget source. The original skeleton was never modified.</div>
+  </div>
+</div></section>
+
+<section id="tested"><div class="wrap">
+  <h2>Tested on real characters</h2>
+  <p class="sub">Each test retargets an animation through the control rig, then removes the skeleton's own animation, so only the rig moves it. The result is compared with a plain retarget onto an unrigged copy.</p>
+  <table>
+    <tr><th>Character (FBX)</th><th>Detected as</th><th>Modules</th><th>Clicks</th><th>Max. error</th></tr>
+    <tr><td>Ch36_nonPBR</td><td>Mixamo</td><td>18</td><td>3</td><td class="ok">0.03 cm · 0.000°</td></tr>
+    <tr><td>Dancing</td><td>Mixamo</td><td>18</td><td>3</td><td class="ok">0.10 cm · 0.000°</td></tr>
+    <tr><td>Regular_MB_Build</td><td>AccuRIG (MotionBuilder)</td><td>33</td><td>3</td><td class="ok">0.10 cm · 0.000°</td></tr>
+    <tr><td>Regular_Rigify_Rig</td><td>Character Creator / ActorCore</td><td>33</td><td>3</td><td class="ok">0.10 cm · 0.000°</td></tr>
+    <tr><td>Regular_UE5_Rig</td><td>Unreal Engine 5</td><td>41</td><td>3</td><td class="ok">0.09 cm · 0.000°</td></tr>
+  </table>
+  <p class="cap">There are also automated suites: 39/39 detection and transfer checks, 52/52 checks on the modular examples scene, and 142/142 checks across all 20 standards in three bake modes.</p>
+  <p></p>
+  <div class="grid2">
+    <div><video src="media/p2m_strong_demo.mp4" poster="media/p2m_strong_demo_poster.jpg" controls muted loop playsinline preload="none"></video>
+      <p class="cap">One CC export with UE, AccuRIG and CC_Base bone names, so three skeletons, each with its own control rig: 22/22 checks.</p></div>
+    <div><video src="media/ue5_demo.mp4" poster="media/ue5_demo_poster.jpg" controls muted loop playsinline preload="none"></video>
+      <p class="cap">A UE5 skeleton (118 bones) with 41 modules, including twist bones, IK bones, eyes, jaw and tongue.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Install</h2>
+  <div class="grid2">
+    <div class="card"><h3>Rig Bridge</h3><ul>
+      <li>Download <code>rig_bridge-x.y.z.zip</code> from <a href="https://github.com/MondRubberduck/Rig-Bridge/releases/latest">Releases</a></li>
+      <li>Drag it into Blender 4.2+ (tested on 5.2.3)</li>
+      <li><i>3D View ▸ Sidebar (N) ▸ Rig Bridge</i>. Rigify is enabled automatically.</li></ul></div>
+    <div class="card"><h3>Bulletproof Retarget (optional)</h3><ul>
+      <li>For one-click retargeting onto the rig: <a href="https://github.com/MondRubberduck/Bulletproof-Retarget/releases/latest">1.3.2 or newer</a></li>
+      <li>The two are separate add-ons, and neither requires the other</li>
+      <li>With another retargeter, use <i>Release Skeleton</i>, retarget, then <i>Bake to Control Rig</i></li></ul></div>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">Rig Bridge, by Nils Gallist · GPL-3.0-or-later · <a href="https://github.com/MondRubberduck/Rig-Bridge">GitHub</a> · <a href="https://github.com/MondRubberduck/Rig-Bridge/issues">Report an issue</a></div></footer>
+</body>
+</html>

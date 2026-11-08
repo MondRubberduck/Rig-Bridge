@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+
+id = "rig_bridge"
+version = "0.4.1"
+name = "Rig Bridge"
+tagline = "Modular one-click control rigs: Mixamo, Unreal, Daz, CC and more"
+maintainer = "Nils Gallist"
+type = "add-on"
+website = "https://mondrubberduck.github.io/Rig-Bridge/"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Rigging", "Animation"]
+
+[permissions]
+files = "Read and write user rig profiles (JSON) and module plug-ins"
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "/.git/", "*.zip", "/tests/", "/docs/", "LICENSE", ".gitignore", ".gitattributes"]

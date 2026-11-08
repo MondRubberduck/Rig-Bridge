@@ -1,0 +1,20 @@
+{
+  "id": "mixamo",
+  "label": "Mixamo",
+  "description": "Adobe Mixamo auto-rigger skeleton (mixamorig:*, mixamorig1:*, ...).",
+  "sides": {"L": "Left", "R": "Right"},
+  "strip_prefix": "^mixamorig\\d*_?",
+  "parts": [
+    {"module": "spine", "name": "spine", "bones": ["Hips", "Spine", "Spine1", "Spine2"]},
+    {"module": "neck_head", "name": "head", "bones": ["Neck", "Head"], "tip": "HeadTop_End"},
+    {"module": "shoulder", "name": "shoulder", "mirror": true, "bones": ["{side}Shoulder"]},
+    {"module": "arm", "name": "arm", "mirror": true, "bones": ["{side}Arm", "{side}ForeArm", "{side}Hand"]},
+    {"module": "leg", "name": "leg", "mirror": true, "bones": ["{side}UpLeg", "{side}Leg", "{side}Foot", "?{side}ToeBase"], "tip": "{side}Toe_End"},
+    {"module": "finger", "name": "thumb", "mirror": true, "optional": true, "bones": ["{side}HandThumb1", "{side}HandThumb2", "{side}HandThumb3"], "tip": "{side}HandThumb4"},
+    {"module": "finger", "name": "f_index", "mirror": true, "optional": true, "bones": ["{side}HandIndex1", "{side}HandIndex2", "{side}HandIndex3"], "tip": "{side}HandIndex4"},
+    {"module": "finger", "name": "f_middle", "mirror": true, "optional": true, "bones": ["{side}HandMiddle1", "{side}HandMiddle2", "{side}HandMiddle3"], "tip": "{side}HandMiddle4"},
+    {"module": "finger", "name": "f_ring", "mirror": true, "optional": true, "bones": ["{side}HandRing1", "{side}HandRing2", "{side}HandRing3"], "tip": "{side}HandRing4"},
+    {"module": "finger", "name": "f_pinky", "mirror": true, "optional": true, "bones": ["{side}HandPinky1", "{side}HandPinky2", "{side}HandPinky3"], "tip": "{side}HandPinky4"},
+    {"module": "copy", "name": "eye", "mirror": true, "optional": true, "bones": ["{side}Eye"]}
+  ]
+}

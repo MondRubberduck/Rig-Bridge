@@ -1,0 +1,23 @@
+{
+  "id": "unreal",
+  "label": "Unreal Mannequin (UE4 / UE5 / MetaHuman body)",
+  "description": "Epic skeleton: UE4 Mannequin, UE5 Manny/Quinn, MetaHuman body. Optional bones cover all variants; twist/IK bones are left to follow their parents.",
+  "sides": {"L": "l", "R": "r"},
+  "parts": [
+    {"module": "root", "name": "root", "optional": true, "bones": ["root"]},
+    {"module": "spine", "name": "spine", "bones": ["pelvis", "spine_01", "spine_02", "spine_03", "?spine_04", "?spine_05"]},
+    {"module": "neck_head", "name": "head", "bones": ["neck_01", "?neck_02", "head"]},
+    {"module": "shoulder", "name": "shoulder", "mirror": true, "bones": ["clavicle_{side}"]},
+    {"module": "arm", "name": "arm", "mirror": true, "bones": ["upperarm_{side}", "lowerarm_{side}", "hand_{side}"]},
+    {"module": "leg", "name": "leg", "mirror": true, "bones": ["thigh_{side}", "calf_{side}", "foot_{side}", "?ball_{side}"]},
+    {"module": "palm", "name": "palm_index", "mirror": true, "optional": true, "bones": ["index_metacarpal_{side}"]},
+    {"module": "palm", "name": "palm_middle", "mirror": true, "optional": true, "bones": ["middle_metacarpal_{side}"]},
+    {"module": "palm", "name": "palm_ring", "mirror": true, "optional": true, "bones": ["ring_metacarpal_{side}"]},
+    {"module": "palm", "name": "palm_pinky", "mirror": true, "optional": true, "bones": ["pinky_metacarpal_{side}"]},
+    {"module": "finger", "name": "thumb", "mirror": true, "optional": true, "bones": ["thumb_01_{side}", "thumb_02_{side}", "thumb_03_{side}"]},
+    {"module": "finger", "name": "f_index", "mirror": true, "optional": true, "bones": ["index_01_{side}", "index_02_{side}", "index_03_{side}"]},
+    {"module": "finger", "name": "f_middle", "mirror": true, "optional": true, "bones": ["middle_01_{side}", "middle_02_{side}", "middle_03_{side}"]},
+    {"module": "finger", "name": "f_ring", "mirror": true, "optional": true, "bones": ["ring_01_{side}", "ring_02_{side}", "ring_03_{side}"]},
+    {"module": "finger", "name": "f_pinky", "mirror": true, "optional": true, "bones": ["pinky_01_{side}", "pinky_02_{side}", "pinky_03_{side}"]}
+  ]
+}
