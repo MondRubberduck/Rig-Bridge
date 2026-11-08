@@ -291,7 +291,56 @@ def build(context, src, specs: list[PartSpec]):
         for lb in lay:
             e = eb.new(lb.name)
             e.head, e.tail = lb.head, lb.tail
+    # --- auto-create parent socket anchors for partial rigs --------------
+    # If a module is placed on a bone (e.g. hair_01, tail_01, upperarm_l) whose
+    # parent bone on src (head, pelvis, clavicle_l) is NOT driven by any module,
+    # synthesize a lightweight parent socket bone on the rig so the partial rig
+    # has a proper parent control at the socket joint and Bake to Control Rig
+    # transfers the parent bone's animation automatically.
+    auto_sockets = []
+    seen_auto = set()
     src_bones = src.data.bones
+    for spec, mod, lay in layouts:
+        if not lay:
+            continue
+        first = lay[0].src or (spec.bones[0] if spec.bones else "")
+        if not first or first not in src_bones:
+            continue
+        par_src = spec.parent if (spec.parent and spec.parent in src_bones) else (
+            src_bones[first].parent.name if src_bones[first].parent else ""
+        )
+        if not par_src or par_src in meta_of:
+            continue
+        # Walk up to check if ANY ancestor is in meta_of
+        anc = src_bones[par_src]
+        while anc and anc.name not in meta_of:
+            anc = anc.parent
+        if anc is None and par_src not in seen_auto:
+            seen_auto.add(par_src)
+            auto_sockets.append(par_src)
+
+    for par_src in auto_sockets:
+        s_side = side_of(par_src) or ""
+        s_base = re.sub(r"[^A-Za-z0-9_]", "_", strip_vendor(strip_namespace(par_src)))
+        if s_side and s_base.lower().endswith((f"_{s_side.lower()}", f".{s_side.lower()}")):
+            s_base = s_base[:-2]
+        s_spec = PartSpec("control", s_base or par_src, s_side, [par_src], "",
+                          {"translate": True, "shape": "CIRCLE", "size": 1.0})
+        s_spec.all_bones = [par_src]
+        s_lay = placeholder_layout(ctx, s_spec)
+        for lb in s_lay:
+            n, k = lb.name, 2
+            while n in used:
+                n = f"{lb.name}_{k}"
+                k += 1
+            lb.name = n
+            used.add(n)
+            if lb.src:
+                meta_of[lb.src] = lb.name
+            e = eb.new(lb.name)
+            e.head, e.tail = lb.head, lb.tail
+        specs.insert(0, s_spec)
+        layouts.insert(0, (s_spec, MODULES["control"], s_lay))
     for spec, mod, lay in layouts:
         for lb in lay:
             e = eb[lb.name]
@@ -332,6 +381,8 @@ def build(context, src, specs: list[PartSpec]):
     saved_action = None
     if old_rig is not None:
         unbind(src)
+        native.remove_sims(src.name)
+        native._remove_dyn_rig(src)
         if old_rig.animation_data:
             saved_action = old_rig.animation_data.action
             for fc in list(old_rig.animation_data.drivers):     # stale native drivers

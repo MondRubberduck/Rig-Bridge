@@ -17,7 +17,7 @@ Engine's Modular Control Rig.
 bl_info = {
     "name": "Rig Bridge",
     "author": "Nils Gallist",
-    "version": (0, 4, 2),
+    "version": (1, 0, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > Rig Bridge",
     "description": "Modular control rigs (Unreal-style) on top of Rigify; Mixamo/UE auto-detect",
@@ -105,6 +105,25 @@ def ensure_settings(part, reset=False):
 
 def _module_update(self, context):
     ensure_settings(self)
+    src = self.id_data
+    mod = MODULES.get(self.module)
+    if src is None or mod is None or not hasattr(src, "data") or not hasattr(src.data, "bones"):
+        return
+    start = self.bones[0].bone if len(self.bones) else ""
+    if not start or start not in src.data.bones:
+        return
+    st = getattr(src, "rig_bridge", None)
+    others = []
+    if st is not None:
+        others = [_part_spec(q) for q in st.parts if q != self and q.enabled]
+    try:
+        bones, tip = mod.auto_resolve(src, start, used=modular.assigned(src, others))
+        if bones:
+            _set_bones(self, bones)
+            self.tip = tip or ""
+    except Exception:
+        pass
+    _redraw(context)
 
 
 def _set_bones(part, names):
@@ -194,6 +213,8 @@ class RB_Settings(bpy.types.PropertyGroup):
                             description="Which IK/FK switch state the baked animation starts in")
     parts: CollectionProperty(type=RB_Part)
     active_part: IntProperty(update=_active_update)
+    user_sockets: CollectionProperty(type=RB_BoneRef)
+    active_socket: IntProperty()
     metarig: PointerProperty(type=bpy.types.Object)
     rig: PointerProperty(type=bpy.types.Object)
     source: PointerProperty(type=bpy.types.Object)
@@ -241,6 +262,7 @@ def specs_from_settings_part(p):
 def add_specs(st, specs):
     for s in specs:
         p = st.parts.add()
+        _set_bones(p, s.bones)
         p.module = s.module
         p.part_name = s.name
         p.side = s.side or "NONE"
@@ -341,7 +363,9 @@ def part_problem(src, p):
 
 
 def selected_socket_bones(context, src):
-    if src is not None and context.object is src and src.mode == "POSE":
+    if src is None:
+        return []
+    if context.object is src and src.mode == "POSE":
         sel = context.selected_pose_bones or []
         act = context.active_pose_bone
         names = [b.name for b in sel]
@@ -349,6 +373,38 @@ def selected_socket_bones(context, src):
             names.remove(act.name)
             names.insert(0, act.name)
         return names
+    # Also support selecting bones on the compiled Control Rig and mapping back
+    # to their source skeleton bones!
+    rig = src.rig_bridge.rig
+    if rig is not None and context.object is rig and rig.mode == "POSE":
+        sel = context.selected_pose_bones or []
+        if not sel:
+            return []
+        act = context.active_pose_bone
+        ordered = [b.name for b in sel]
+        if act and act.name in ordered:
+            ordered.remove(act.name)
+            ordered.insert(0, act.name)
+        rev = {}
+        for p in json.loads(rig.get(builder.PAIRS_KEY, "[]")):
+            if len(p) >= 2:
+                s_bone, r_bone = p[0], p[1]
+                rev[r_bone] = s_bone
+                base = r_bone[4:] if r_bone.startswith(("ORG-", "DEF-")) else r_bone
+                rev.setdefault(base, s_bone)
+                rev.setdefault(f"{base}_fk", s_bone)
+                if "." in base:
+                    stem, _, side = base.rpartition(".")
+                    rev.setdefault(f"{stem}_fk.{side}", s_bone)
+                    rev.setdefault(f"{stem}_ik.{side}", s_bone)
+        for s_bone, ctrl, _ in json.loads(rig.get(builder.FK_KEY, "[]")):
+            rev.setdefault(ctrl, s_bone)
+        out = []
+        for rn in ordered:
+            sb = rev.get(rn)
+            if sb and sb not in out:
+                out.append(sb)
+        return out
     return []
 
 
@@ -430,6 +486,32 @@ def place_on(op, context, src, st, mid, bones):
     used = modular.assigned(src, specs)
     free = [b for b in bones if b not in used]
     if not free:
+        # Seamless experimentation: if all selected bones belong to existing
+        # module(s), swap those module(s) in-place to the new module type!
+        owner = {}
+        for i, p in enumerate(st.parts):
+            if not p.enabled:
+                continue
+            s = specs_from_settings_part(p)
+            mod = MODULES.get(p.module)
+            bs = mod.expand(src, s) if mod else s.bones
+            for b in bs:
+                if b:
+                    owner.setdefault(b, i)
+        swapped = []
+        seen_idx = set()
+        for b in bones:
+            idx = owner.get(b)
+            if idx is not None and idx not in seen_idx:
+                seen_idx.add(idx)
+                p = st.parts[idx]
+                p.module = mid  # triggers _module_update -> auto_resolve & ensure_settings
+                st.active_part = idx
+                swapped.append(f"{p.part_name}{'.' + p.side if p.side != 'NONE' else ''}")
+        if swapped:
+            op.report({"INFO"}, f"Swapped to {MODULES[mid].label}: {', '.join(swapped)}")
+            _redraw(context)
+            return {"FINISHED"}
         op.report({"WARNING"}, "Selected bones already have modules")
         return {"CANCELLED"}
     new = modular.place(src, specs, mid, free)
@@ -638,17 +720,18 @@ class RIGBRIDGE_OT_use_selected(_SourceOp, bpy.types.Operator):
 
     def execute(self, context):
         src, st, p = _active_part(context)
-        act = context.active_pose_bone if context.object is src else None
-        if p is None or act is None:
-            self.report({"WARNING"}, "Select a bone of the skeleton in Pose Mode")
+        sel = selected_socket_bones(context, src)
+        act = sel[0] if sel else (context.active_pose_bone.name if (context.object is src and context.active_pose_bone) else None)
+        if p is None or not act:
+            self.report({"WARNING"}, "Select a bone in Pose Mode")
             return {"CANCELLED"}
         if self.target == "array":
             have = {b.bone for b in p.bones}
-            for b in selected_socket_bones(context, src):
+            for b in sel:
                 if b not in have:
                     p.bones.add().bone = b
         else:
-            setattr(p, self.target, act.name)
+            setattr(p, self.target, act)
         return {"FINISHED"}
 
 
@@ -757,9 +840,72 @@ class _RigOp(_SourceOp):
 class RIGBRIDGE_OT_select_rig(_RigOp, bpy.types.Operator):
     bl_idname = "rig_bridge.select_rig"
     bl_label = "Select Rig"
+    bl_description = "Switch to the Control Rig in Pose Mode (Animate)"
 
     def execute(self, context):
-        builder.set_mode(context, get_source(context).rig_bridge.rig, "POSE")
+        src = get_source(context)
+        builder.set_mode(context, src.rig_bridge.rig, "POSE")
+        src.hide_set(True)
+        return {"FINISHED"}
+
+
+class RIGBRIDGE_OT_select_skeleton(_SourceOp, bpy.types.Operator):
+    bl_idname = "rig_bridge.select_skeleton"
+    bl_label = "Edit Skeleton / Sockets"
+    bl_description = "Unhide and switch to the source skeleton in Pose Mode so you can pick bones, define sockets, and place modules"
+
+    def execute(self, context):
+        src = get_source(context)
+        src.hide_set(False)
+        builder.set_mode(context, src, "POSE")
+        src.rig_bridge.show_sockets = True
+        _select_part_bones(src.rig_bridge, context)
+        _redraw(context)
+        return {"FINISHED"}
+
+
+class RIGBRIDGE_OT_socket_add(_SourceOp, bpy.types.Operator):
+    bl_idname = "rig_bridge.socket_add"
+    bl_label = "Mark as Socket"
+    bl_description = "Mark selected bone(s) as explicit Sockets in the viewport (or add a custom socket entry)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        src = get_source(context)
+        st = src.rig_bridge
+        sel = selected_socket_bones(context, src)
+        have = {u.bone for u in st.user_sockets if u.bone}
+        added = []
+        if sel:
+            for b in sel:
+                if b not in have:
+                    st.user_sockets.add().bone = b
+                    added.append(b)
+            st.active_socket = max(0, len(st.user_sockets) - 1)
+            self.report({"INFO"}, f"Marked socket(s): {', '.join(added)}" if added else "Already marked as socket")
+        else:
+            st.user_sockets.add()
+            st.active_socket = len(st.user_sockets) - 1
+        st.show_sockets = True
+        _redraw(context)
+        return {"FINISHED"}
+
+
+class RIGBRIDGE_OT_socket_remove(_SourceOp, bpy.types.Operator):
+    bl_idname = "rig_bridge.socket_remove"
+    bl_label = "Remove Socket"
+    bl_description = "Remove custom socket entry"
+    bl_options = {"REGISTER", "UNDO"}
+    index: IntProperty(default=-1)
+
+    def execute(self, context):
+        src = get_source(context)
+        st = src.rig_bridge
+        idx = self.index if self.index >= 0 else st.active_socket
+        if 0 <= idx < len(st.user_sockets):
+            st.user_sockets.remove(idx)
+            st.active_socket = max(0, min(st.active_socket, len(st.user_sockets) - 1))
+        _redraw(context)
         return {"FINISHED"}
 
 
@@ -1008,6 +1154,19 @@ class RIGBRIDGE_UL_parts(bpy.types.UIList):
         r.label(text=(mod.tile if mod else item.module), icon="ERROR" if prob else "NONE")
 
 
+def _preview_detect(src):
+    key = (src.name, len(src.data.bones), src.rig_bridge.profile)
+    hit = _ENUM_CACHE.get("detect_preview")
+    if hit and hit[0] == key:
+        return hit[1]
+    try:
+        parts, used, msg = detect.detect(src, src.rig_bridge.profile)
+    except Exception:
+        parts, used, msg = [], "", ""
+    _ENUM_CACHE["detect_preview"] = (key, (parts, used, msg))
+    return parts, used, msg
+
+
 class RIGBRIDGE_PT_main(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -1021,20 +1180,51 @@ class RIGBRIDGE_PT_main(bpy.types.Panel):
             layout.label(text="Select an armature", icon="INFO")
             return
         st = src.rig_bridge
-        row = layout.row()
-        row.label(text=src.name, icon="ARMATURE_DATA")
-        if context.object is src and src.mode != "POSE":
-            row.operator("object.mode_set", text="Pose Mode", icon="POSE_HLT").mode = "POSE"
         row = layout.row(align=True)
-        row.scale_y = 1.4
-        row.operator("rig_bridge.auto_rig", icon="SHADERFX")
-        row.operator("rig_bridge.build", icon="FILE_REFRESH")
-        if st.status:
-            layout.label(text=st.status)
+        row.label(text=src.name, icon="ARMATURE_DATA")
+        if st.rig is not None:
+            sub = row.row(align=True)
+            sub.operator("rig_bridge.select_skeleton", text="Skeleton", icon="BONE_DATA",
+                         depress=(context.object is src and src.mode == "POSE"))
+            sub.operator("rig_bridge.select_rig", text="Control Rig", icon="POSE_HLT",
+                         depress=(context.object is st.rig))
+        elif context.object is src and src.mode != "POSE":
+            row.operator("object.mode_set", text="Pose Mode", icon="POSE_HLT").mode = "POSE"
+
+        # --- Immediate detection message when selecting a rig ----------------
+        msg = st.status
+        if not msg and not len(st.parts):
+            _, _, msg = _preview_detect(src)
+        if msg:
+            box = layout.box()
+            box.label(text=msg, icon="CHECKMARK" if "Detected" in msg else "INFO")
+
+        # --- Primary 1-Click Pipeline Button at the Top ----------------------
+        col = layout.column(align=True)
+        col.scale_y = 1.5
+        if not len(st.parts):
+            col.operator("rig_bridge.build", text="Generate Control Rig", icon="ARMATURE_DATA")
+        else:
+            r = col.row(align=True)
+            r.operator("rig_bridge.build",
+                       text="Recompile Control Rig" if st.rig else "Generate Control Rig",
+                       icon="FILE_REFRESH" if st.rig else "PLAY")
+            r.operator("rig_bridge.auto_rig", text="Fill Empty Sockets", icon="SHADERFX")
+
         row = layout.row(align=True)
         row.prop(st, "show_sockets", toggle=True, icon="DECORATE_LINKED")
         row.prop(st, "empty_only", toggle=True)
         row.prop(st, "show_helpers", toggle=True)
+        row.operator("rig_bridge.socket_add", text="", icon="PINNED")
+        if len(st.user_sockets):
+            box = layout.box()
+            hdr = box.row(align=True)
+            hdr.label(text="Custom Sockets", icon="PINNED")
+            hdr.operator("rig_bridge.socket_add", text="Mark Selected", icon="ADD")
+            for i, u in enumerate(st.user_sockets):
+                rr = box.row(align=True)
+                rr.prop_search(u, "bone", src.data, "bones", text="")
+                rr.operator("rig_bridge.socket_remove", text="", icon="X").index = i
         row = layout.row(align=True)
         row.prop(st, "control_size")
         row.prop(st, "side_colors", toggle=True, icon="COLOR")
@@ -1057,12 +1247,30 @@ class RIGBRIDGE_PT_assets(_Sub, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         src = get_source(context)
+        st = src.rig_bridge
         sel = selected_socket_bones(context, src)
         hint = modular.suggest(src, sel[0]) if sel else None
+        used = modular.assigned(src, specs_from_settings(st))
         if sel:
-            layout.label(text=f"Drop on: {', '.join(sel[:3])}{'…' if len(sel) > 3 else ''}", icon="BONE_DATA")
+            in_mod = all(b in used for b in sel)
+            verb = "Swap module on" if in_mod else "Socket"
+            box = layout.box()
+            r = box.row(align=True)
+            r.label(text=f"{verb}: {', '.join(sel[:3])}{'…' if len(sel) > 3 else ''}",
+                    icon="FILE_REFRESH" if in_mod else "BONE_DATA")
+            if hint and hint in MODULES:
+                mod_h = MODULES[hint]
+                try:
+                    res_bones, _ = mod_h.auto_resolve(src, sel[0], used=used if not in_mod else set())
+                except Exception:
+                    res_bones = [sel[0]]
+                chain_preview = f"{res_bones[0]} → {res_bones[-1]}" if len(res_bones) > 1 else res_bones[0]
+                op = box.operator("rig_bridge.add_module",
+                                  text=f"Suggested: {mod_h.tile}  ({chain_preview})",
+                                  icon=mod_h.icon, depress=True)
+                op.module = hint
         else:
-            layout.label(text="Pick bones, or click a tile + a socket", icon="INFO")
+            layout.label(text="Pick a bone, or click a tile → click a socket in 3D view", icon="INFO")
         for cat in CATEGORIES:
             mods = [m for m in MODULES.values() if m.category == cat and m.in_library]
             if not mods:
@@ -1251,6 +1459,7 @@ classes = (
     RIGBRIDGE_OT_part_remove, RIGBRIDGE_OT_part_clear, RIGBRIDGE_OT_part_mirror, RIGBRIDGE_OT_part_duplicate,
     RIGBRIDGE_OT_part_resolve, RIGBRIDGE_OT_use_selected, RIGBRIDGE_OT_bone_add, RIGBRIDGE_OT_bone_remove,
     RIGBRIDGE_OT_reset_settings, RIGBRIDGE_OT_part_add, RIGBRIDGE_OT_build, RIGBRIDGE_OT_select_rig,
+    RIGBRIDGE_OT_select_skeleton, RIGBRIDGE_OT_socket_add, RIGBRIDGE_OT_socket_remove,
     RIGBRIDGE_OT_bind, RIGBRIDGE_OT_toggle_skeleton, RIGBRIDGE_OT_mute, RIGBRIDGE_OT_unbind, RIGBRIDGE_OT_bake, RIGBRIDGE_OT_transfer,
     RIGBRIDGE_OT_dynamics_bake, RIGBRIDGE_OT_add_collider, RIGBRIDGE_OT_save_profile, RIGBRIDGE_OT_reload,
     RIGBRIDGE_OT_open_user_dir, RIGBRIDGE_UL_parts,

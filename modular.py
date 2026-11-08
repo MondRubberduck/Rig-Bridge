@@ -67,6 +67,7 @@ FACE_TOKENS = {
 
 def sockets(src, specs, helpers=False):
     used = assigned(src, specs)
+    user_socks = {u.bone for u in getattr(src.rig_bridge, "user_sockets", ()) if u.bone}
     toe_roots = {s.bones[3] for s in specs if s.module == "leg" and len(s.bones) >= 4 and s.bones[3]}
     has_head = any(s.module == "neck_head" for s in specs)
     out = []
@@ -84,6 +85,9 @@ def sockets(src, specs, helpers=False):
 
     for b in src.data.bones:
         if b.name in used:
+            continue
+        if b.name in user_socks:
+            out.append(b.name)
             continue
         if not helpers and (is_helper(b.name) or resolve.is_end_bone(b) or is_duplicate_leaf(b)):
             continue
@@ -190,10 +194,42 @@ def place(src, specs, mid, socket_bones):
         new.append(make_spec(src, specs + new, mid, bones, tip))
     else:
         for s in socket_bones:
+            # UE5-style socket intent:
+            # 1) Dropping Arm on a clavicle/shoulder socket auto-places Shoulder
+            #    on the clavicle (if unassigned) and Arm on upperarm..hand!
+            # 2) Dropping Finger on a hand/wrist bone auto-expands to all 5 finger
+            #    chains under that hand!
+            if mid == "finger" and (set(core_tokens(s)) & {"hand", "wrist"}):
+                hb = src.data.bones.get(s)
+                if hb:
+                    f_starts = []
+                    for c in hb.children:
+                        if c.name in used or is_helper(c.name):
+                            continue
+                        # If child is a metacarpal/carpal, step to its finger child
+                        if set(core_tokens(c.name)) & {"metacarpal", "carpal", "palm"} and c.children:
+                            for gc in c.children:
+                                if gc.name not in used and not is_helper(gc.name):
+                                    f_starts.append(gc.name)
+                        else:
+                            f_starts.append(c.name)
+                    if f_starts:
+                        for fs in f_starts:
+                            fb, ftip = mod.auto_resolve(src, fs, selection=(), used=used)
+                            fb = [b for b in fb if b not in used]
+                            if any(fb):
+                                sp = make_spec(src, specs + new, mid, fb, ftip)
+                                new.append(sp)
+                                used |= set(mod.expand(src, sp))
+                        continue
             bones, tip = mod.auto_resolve(src, s, selection=(), used=used)
             bones = [b for b in bones if b not in used] if mod.kind == "chain" else bones
             if not any(bones):
                 continue
+            if mid == "arm" and bones[0] != s and s not in used and (set(core_tokens(s)) & {"clavicle", "shoulder", "collar"}):
+                sh_sp = make_spec(src, specs + new, "shoulder", [s], "")
+                new.append(sh_sp)
+                used |= set(MODULES["shoulder"].expand(src, sh_sp))
             sp = make_spec(src, specs + new, mid, bones, tip)
             new.append(sp)
             used |= set(mod.expand(src, sp))

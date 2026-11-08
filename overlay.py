@@ -40,7 +40,8 @@ def source_of(obj):
 
 
 def specs_key(st):
-    return tuple((p.module, p.enabled, tuple(b.bone for b in p.bones), p.tip) for p in st.parts)
+    return (tuple((p.module, p.enabled, tuple(b.bone for b in p.bones), p.tip) for p in st.parts),
+            tuple(u.bone for u in getattr(st, "user_sockets", ())))
 
 
 def schematic(src):
@@ -57,8 +58,9 @@ def schematic(src):
         print("[Rig Bridge] plan failed:", exc)
         sugg = {}
     socks = modular.sockets(src, specs, helpers=st.show_helpers)
+    user_socks = {u.bone for u in getattr(st, "user_sockets", ()) if u.bone}
     data = {
-        "sockets": [(b, sugg.get(b) or modular.suggest(src, b)) for b in socks],
+        "sockets": [(b, sugg.get(b) or modular.suggest(src, b), b in user_socks) for b in socks],
         "parts": [(next((b for b in p.bones if b), None), p.module, p.side, p.name) for p in specs],
     }
     _CACHE[src.name] = (key, data)
@@ -69,23 +71,37 @@ def socket_screen_positions(context, src, region, rv3d):
     out = []
     data = schematic(src)
     mw = src.matrix_world
-    for b, mid in data["sockets"]:
+    for b, mid, is_user in data["sockets"]:
         pb = src.pose.bones.get(b)
         if pb is None:
             continue
         p2 = location_3d_to_region_2d(region, rv3d, mw @ pb.head)
         if p2 is not None:
-            out.append((b, mid, p2))
+            out.append((b, mid, p2, is_user))
     return out
 
 
 def pick(context, area, region, mx, my, src):
     rv3d = area.spaces.active.region_3d
     best = None
-    for b, mid, p in socket_screen_positions(context, src, region, rv3d):
+    for b, mid, p, _ in socket_screen_positions(context, src, region, rv3d):
         d = math.hypot(p.x - mx, p.y - my)
         if d < 28 and (best is None or d < best[0]):
             best = (d, b)
+    if best:
+        return best[1]
+    # Also allow clicking a placed module's root bone in the viewport to swap it!
+    data = schematic(src)
+    mw = src.matrix_world
+    for b, mid, side, name in data["parts"]:
+        pb = src.pose.bones.get(b) if b else None
+        if pb is None:
+            continue
+        p = location_3d_to_region_2d(region, rv3d, mw @ pb.head)
+        if p is not None:
+            d = math.hypot(p.x - mx, p.y - my)
+            if d < 24 and (best is None or d < best[0]):
+                best = (d, b)
     return best[1] if best else None
 
 
@@ -115,8 +131,8 @@ def _line_shader(region, width):
 
 def draw():
     context = bpy.context
-    src = context.object
-    if src is None or src.type != "ARMATURE" or src.rig_bridge.source is not None or src.mode == "EDIT":
+    src = source_of(context.object)
+    if src is None or src.type != "ARMATURE" or src.mode == "EDIT":
         return
     st = src.rig_bridge
     if not st.show_sockets and not PLACING["module"]:
@@ -153,19 +169,33 @@ def draw():
             blf.position(font, p.x + 9, p.y - 4, 0)
             blf.draw(font, f"{mod.tile if mod else mid}: {name}{'.' + side if side else ''}")
     # sockets
-    for b, mid, p in socket_screen_positions(context, src, region, rv3d):
+    for b, mid, p, is_user in socket_screen_positions(context, src, region, rv3d):
         hover = placing and PLACING["hover"] == b
-        col = COL["hover"] if hover else COL["socket"]
-        sh = _line_shader(region, 3.0 if hover else 1.5)
+        col = COL["hover"] if hover else ((0.35, 0.95, 0.55, 0.95) if is_user else COL["socket"])
+        sh = _line_shader(region, 3.0 if hover else (2.2 if is_user else 1.5))
         batch = batch_for_shader(sh, "LINE_STRIP", {"pos": _ring(p.x, p.y, 11 if hover else 8)})
         sh.bind()
         sh.uniform_float("color", col)
         batch.draw(sh)
         mod = MODULES.get(mid)
-        label = f"+ {MODULES[PLACING['module']].tile}" if hover else (f"+ {mod.tile}" if mod else "+")
+        tag = f"★ {b} " if is_user else ""
+        label = f"{tag}+ {MODULES[PLACING['module']].tile}" if hover else (f"{tag}+ {mod.tile}" if mod else f"{tag}+")
         blf.color(font, *col)
         blf.position(font, p.x + 12, p.y - 4, 0)
         blf.draw(font, label if (hover or not placing) else "")
+        if hover and PLACING["module"] in MODULES:
+            try:
+                from . import specs_from_settings
+                used = modular.assigned(src, specs_from_settings(st))
+                res_bones, _ = MODULES[PLACING["module"]].auto_resolve(src, b, used=used)
+                if len(res_bones) > 1:
+                    blf.size(font, 11)
+                    blf.color(font, 0.45, 0.95, 1.0, 1.0)
+                    blf.position(font, p.x + 12, p.y - 20, 0)
+                    blf.draw(font, f"({res_bones[0]} → {res_bones[-1]}, {len(res_bones)} bones)")
+                    blf.size(font, 12)
+            except Exception:
+                pass
     if placing:
         blf.size(font, 15)
         blf.color(font, 1, 1, 1, 1)

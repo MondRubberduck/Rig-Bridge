@@ -115,6 +115,16 @@ def _head_tip(src, head):
 
 
 def limb_chain(src, start, with_toe=False):
+    toks = set(core_tokens(start))
+    # UE5-style socket intent: if a Limb/Arm module is dropped on a clavicle or
+    # shoulder bone whose child is the upper arm (so the chain continues 3 more
+    # joints down to the hand/wrist), step into the upper arm automatically so
+    # the limb spans upper_arm -> forearm -> hand!
+    if not with_toe and (toks & {"clavicle", "shoulder", "collar"}):
+        c4 = follow_heavy(src, start, 4)
+        if len(c4) == 4 and (set(core_tokens(c4[1])) & {"upperarm", "arm", "uparm", "shldr", "shldrbend"}
+                             or set(core_tokens(c4[-1])) & {"hand", "wrist"}):
+            start = c4[1]
     chain = follow_heavy(src, start, 3)
     tip = ""
     if with_toe and len(chain) == 3:
