@@ -336,14 +336,6 @@ def humanoid_parts(obj, res):
         necks = neck[:-1]
         tip = res.get("head_end", "")
         parts.append(PartSpec("neck_head", "head", "", [b.name for b in neck], tip if tip in B else ""))
-        # eyes: one Aim module (pair + shared target), like Unreal's Look At
-        eye = next((c.name for c in head.children_recursive
-                    if "eye" in _resolve.core_tokens(c.name) and not c.children), None)
-        if eye:
-            pair = [n for n in _resolve.eye_pair(obj, eye, ()) if n]
-            if len(pair) == 2:
-                # eyes look where the head looks: the shared target rides on the head
-                parts.append(PartSpec("aim", "eye", "", pair, "", {"follow": True}))
 
     for s, S in (("l", "L"), ("r", "R")):
         sh = get(f"shoulder_{s}")

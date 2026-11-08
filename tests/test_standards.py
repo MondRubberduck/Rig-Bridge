@@ -413,12 +413,21 @@ def run_case(sid, quirk, pose, style, objm, x):
     std = stdmatch.get(sid)
     coll = bpy.data.collections.new(sid)
     C.scene.collection.children.link(coll)
-    if quirk == "fixture":
+    if quirk == "fixture" and BPR and os.path.isfile(os.path.join(BPR, "tests", "fixtures", "unreal_skeletons.json")):
         rows = ue_fixture("UE5" if sid == "UE5_MANNY" else "UEFN")
         style = "chain"
     else:
-        rows = spec_from_standard(std, pose)
-        if quirk:
+        rows = spec_from_standard(std, pose or "A")
+        if quirk == "fixture":
+            for s in "lr":
+                for f in ("index", "middle", "ring", "pinky"):
+                    h = head_of(rows, f"hand_{s}").lerp(head_of(rows, f"{f}_01_{s}"), 0.5)
+                    add(rows, f"{f}_metacarpal_{s}", f"hand_{s}", h)
+                    reparent(rows, f"{f}_01_{s}", f"{f}_metacarpal_{s}")
+            if sid == "UEFN_MANNEQUIN":
+                add(rows, "attach", "root", (0, 0, 0))
+            style = "chain"
+        elif quirk:
             quirk(rows)
     for r in rows:
         r[2] = r[2] + Vector((x, 0, 0))

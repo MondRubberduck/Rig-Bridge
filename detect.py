@@ -220,13 +220,6 @@ def detect_topology(obj):
                 tip = c.name
         if neck:
             parts.append(PartSpec("neck_head", "head", "", [b.name for b in neck], tip))
-        for c in head.children_recursive:
-            s = side_of(c.name)
-            ct = core_tokens(c.name)
-            if s and ("eye" in ct or "eyeball" in ct):
-                parts.append(PartSpec("copy", "eye", s, [c.name]))
-            elif not s and "jaw" in ct and len(c.parent_recursive) - len(head.parent_recursive) <= 2:
-                parts.append(PartSpec("copy", "jaw", "", [c.name]))
 
     for s in "LR":
         hand = hands[s]

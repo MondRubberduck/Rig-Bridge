@@ -296,7 +296,7 @@ def main():
     try:
         mix = make_armature("Mixamo_Char", mixamo_joints(),
                             Matrix.Rotation(math.radians(90), 4, "X") @ Matrix.Scale(0.01, 4))
-        run_case("Mixamo", mix, "STD:MIXAMO", 19)
+        run_case("Mixamo", mix, "STD:MIXAMO", 18)
 
         # realistic case: a separately imported Mixamo clip (different namespace)
         anim = make_armature("Mixamo_Clip", mixamo_joints("mixamorig1:"),
@@ -352,6 +352,9 @@ def main():
         detect.load_profiles()
         parts, used, msg = detect.detect(vr, "AUTO")
         check("saved profile is auto-detected", used == "vroid_test" and len(parts) == len(vr.rig_bridge.parts), msg)
+        test_prof = os.path.join(detect.user_dir("profiles"), "vroid_test.json")
+        if os.path.isfile(test_prof):
+            os.remove(test_prof)
     except Exception:
         traceback.print_exc()
         check("exception", False)

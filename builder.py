@@ -33,7 +33,10 @@ class BuildError(Exception):
 def ensure_rigify():
     import addon_utils
     if "rigify" not in bpy.context.preferences.addons:
-        addon_utils.enable("rigify", default_set=True, persistent=True)
+        try:
+            bpy.ops.preferences.addon_enable(module="rigify")
+        except Exception:
+            addon_utils.enable("rigify", default_set=True, persistent=True)
     if not hasattr(bpy.types.PoseBone, "rigify_type"):
         raise BuildError("Rigify could not be enabled")
 
@@ -328,6 +331,7 @@ def build(context, src, specs: list[PartSpec]):
     old_rig = settings.rig if settings.rig and settings.rig.name in context.scene.objects else None
     saved_action = None
     if old_rig is not None:
+        unbind(src)
         if old_rig.animation_data:
             saved_action = old_rig.animation_data.action
             for fc in list(old_rig.animation_data.drivers):     # stale native drivers
@@ -358,6 +362,7 @@ def build(context, src, specs: list[PartSpec]):
     for spec, mod, lay in layouts:
         if mod.backend == "rigify":
             mod.post_rigify(rig, spec, lay)
+    _apply_layer_visibility(rig)
     if settings.side_colors:
         _side_colors(rig)
     if saved_action is not None:
@@ -829,6 +834,29 @@ def _bend_dir(a, b, c):
     return d.normalized() if d.length > ac.length * 1e-3 else None
 
 
+def _apply_layer_visibility(rig):
+    """Set sensible default Rigify bone collection visibility: hide tweak/detail
+    layers and show either IK or FK per limb matching its IK_FK property."""
+    colls = rig.data.collections_all
+    for name in ("Torso (Tweak)", "Fingers (Detail)",
+                 "Arm.L (Tweak)", "Arm.R (Tweak)",
+                 "Leg.L (Tweak)", "Leg.R (Tweak)"):
+        bc = colls.get(name)
+        if bc is not None:
+            bc.is_visible = False
+    for kind, n in _ik_limbs(rig):
+        pb = rig.pose.bones.get(n["par"])
+        ik_fk = float(pb.get("IK_FK", 0.0)) if pb is not None else 0.0
+        side = n["par"].rpartition(".")[2]
+        prefix = f"{'Arm' if kind == 'arm' else 'Leg'}.{side}"
+        bc_ik = colls.get(f"{prefix} (IK)")
+        bc_fk = colls.get(f"{prefix} (FK)")
+        if bc_ik is not None:
+            bc_ik.is_visible = ik_fk < 0.5
+        if bc_fk is not None:
+            bc_fk.is_visible = ik_fk >= 0.5
+
+
 def set_ik_mode(rig, mode, frame):
     for kind, n in _ik_limbs(rig):
         pb = rig.pose.bones[n["par"]]
@@ -837,6 +865,7 @@ def set_ik_mode(rig, mode, frame):
         ik = mode == "IK" or (mode == "IK_LEGS" and kind == "leg")
         pb["IK_FK"] = 0.0 if ik else 1.0
         pb.keyframe_insert('["IK_FK"]', frame=frame)
+    _apply_layer_visibility(rig)
 
 
 def _fix_root_translation(context, rig, drv, entries, start, end):
@@ -944,6 +973,9 @@ def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False,
     if rig.animation_data is None:
         rig.animation_data_create()
     rig.animation_data.action = None
+    for bc in rig.data.collections_all:
+        if not bc.name.startswith(("ORG", "MCH", "DEF", "RB ", "RigBridge")):
+            bc.is_visible = True
     for pb in pbs:
         if pb.name not in ctrls and not pb.name.startswith((RET_PREFIX, RETC_PREFIX)):
             pb.matrix_basis = Matrix()

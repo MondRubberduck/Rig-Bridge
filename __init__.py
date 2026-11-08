@@ -17,7 +17,7 @@ Engine's Modular Control Rig.
 bl_info = {
     "name": "Rig Bridge",
     "author": "Nils Gallist",
-    "version": (0, 4, 1),
+    "version": (0, 4, 2),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > Rig Bridge",
     "description": "Modular control rigs (Unreal-style) on top of Rigify; Mixamo/UE auto-detect",
@@ -202,7 +202,7 @@ class RB_Settings(bpy.types.PropertyGroup):
     mute_after_bake: BoolProperty(name="Mute binding after bake", default=True)
     control_size: FloatProperty(name="Control Size", default=1.0, min=0.05, max=20.0,
                                 description="Global control scale (Unreal: root metadata)")
-    side_colors: BoolProperty(name="Side Colors", default=True,
+    side_colors: BoolProperty(name="Side Colors", default=False,
                               description="Left controls blue, right red, center yellow (Unreal convention)")
     show_sockets: BoolProperty(name="Sockets", default=True, description="Show the schematic overlay")
     empty_only: BoolProperty(name="Empty Only", default=False, description="Show only empty sockets")
@@ -724,7 +724,9 @@ class RIGBRIDGE_OT_build(_SourceOp, bpy.types.Operator):
         src = get_source(context)
         st = src.rig_bridge
         if not st.parts:
-            bpy.ops.rig_bridge.auto_rig()
+            bpy.ops.rig_bridge.detect()
+            if not st.parts and "already a control rig" not in st.status:
+                bpy.ops.rig_bridge.auto_rig()
         if not st.parts:
             self.report({"ERROR"}, st.status or "No modules – add some or run Auto Rig")
             return {"CANCELLED"}

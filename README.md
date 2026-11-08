@@ -105,6 +105,11 @@ blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder conta
 * `test_bp_interop.py` runs the full round trip with the real Bulletproof Retarget installed from its release zip: Mixamo mocap → UE5 character → Bake to Control Rig → Bake to Skeleton → Daz G8 → Daz control rig. Each step is compared with a plain, unrigged retarget.
 
 ## Changelog
+* **0.4.2**
+  * One-click **Compile** runs standard/topology detection first, generating a pure Rigify rig without stacking non-Rigify controls onto sub-toes, jaw, tongue or eyes.
+  * Metacarpals (`palm`) now use Rigify's `limbs.super_palm` (`palm.L` / `palm.R` bow control on *Fingers*, individual FK bones on *Fingers (Detail)*) instead of separate `basic.super_copy` spheres.
+  * Clean default Rigify bone collection visibility (hides *Tweak* and *Fingers (Detail)* layers and shows the active *IK* or *FK* collection per limb) and preserves Rigify's native color sets by default (`side_colors = False`).
+  * Viewport socket schematic overlay only draws when the source skeleton is active, never over the generated Rigify control rig.
 * **0.4.1**
   * Straight limbs (Mixamo T-pose legs) are nudged by 0.1% instead of 2% for Rigify's pole. Mixamo knees no longer drift 2–3 cm once the leg bends.
   * Baked takes are named `<rig>|<action>`. Baking the same take again replaces it instead of adding `.001` copies.

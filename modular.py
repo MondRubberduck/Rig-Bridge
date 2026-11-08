@@ -58,14 +58,23 @@ def is_duplicate_leaf(b):
     return bool(t) and t == set(core_tokens(b.parent.name))
 
 
+FACE_TOKENS = {
+    "eye", "eyeball", "jaw", "jawroot", "upperjaw", "mandible",
+    "facial", "facialbone", "tongue", "teeth", "tooth", "lip",
+    "brow", "cheek", "nose", "nostril", "lid", "eyelid",
+}
+
+
 def sockets(src, specs, helpers=False):
     used = assigned(src, specs)
+    toe_roots = {s.bones[3] for s in specs if s.module == "leg" and len(s.bones) >= 4 and s.bones[3]}
+    has_head = any(s.module == "neck_head" for s in specs)
     out = []
 
     def passthrough(b):
         # an unused bone with used descendants (CC_Base_Pelvis, Daz carpals,
         # CC_Base_FacialBone) just follows its parent – and is see-through for
-        # its other children, so the jaw under FacialBone still gets a socket
+        # its other children, so extra chains under a passthrough parent still get a socket
         return not helpers and b.name not in used and any(c.name in used for c in b.children_recursive)
 
     def anchored(p):
@@ -78,6 +87,12 @@ def sockets(src, specs, helpers=False):
             continue
         if not helpers and (is_helper(b.name) or resolve.is_end_bone(b) or is_duplicate_leaf(b)):
             continue
+        if not helpers and toe_roots and any(p.name in toe_roots for p in b.parent_recursive):
+            continue
+        if not helpers and has_head:
+            chain_below_used = [b] + [p for p in b.parent_recursive if p.name not in used]
+            if any(set(core_tokens(x.name)) & FACE_TOKENS for x in chain_below_used):
+                continue
         if passthrough(b):
             continue
         p = b.parent

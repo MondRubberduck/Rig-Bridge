@@ -698,14 +698,82 @@ class MetacarpalModule(CopyModule):
     id = "palm"
     short = "Palm"
     label = "Metacarpal / Palm bone"
-    description = "Metacarpal control under the hand (UE5 metacarpals)"
+    description = "Metacarpal control under the hand (Rigify super_palm)"
+    rigify_type = "limbs.super_palm"
     base_name = "palm"
     category = "Hands"
     icon = "VIEW_PAN"
     in_library = True
 
     def collections(self, spec):
-        return [FINGERS]
+        return [FINGERS, FINGERS_DETAIL]
+
+    def layout(self, ctx, spec):
+        out = super().layout(ctx, spec)
+        palms = [s for s in ctx.specs if s.module == "palm" and s.side == spec.side]
+        if spec in palms:
+            idx = palms.index(spec)
+            sfx = f".{spec.side}" if spec.side else ""
+            out[0].name = f"palm.{idx + 1:02d}{sfx}"
+        back = ctx.hand_back.get(spec.side, ctx.up)
+        for lb in out:
+            d = (lb.tail - lb.head).normalized()
+            hinge = back.cross(d)
+            if hinge.length > 1e-4:
+                lb.roll_z = hinge.normalized().cross(d)
+        return out
+
+    def configure(self, ctx, spec, layout, pbones, colls):
+        p = pbones[layout[0].name]
+        main = colls.get(FINGERS.name)
+        for lb in layout:
+            if main:
+                main.assign(pbones[lb.name])
+        palms = [s for s in ctx.specs if s.module == "palm" and s.side == spec.side]
+        if len(palms) >= 2 and p.bone.parent is not None:
+            if spec is palms[0]:
+                p.rigify_type = "limbs.super_palm"
+                prm = p.rigify_parameters
+                set_param(prm, "palm_rotation_axis", "X")
+                set_param(prm, "make_extra_control", True)
+            else:
+                p.rigify_type = ""
+        else:
+            p.rigify_type = "basic.super_copy"
+            prm = p.rigify_parameters
+            set_param(prm, "make_widget", True)
+            set_param(prm, "super_copy_widget_type", "palm")
+            set_param(prm, "make_deform", True)
+
+    def post_rigify(self, rig, spec, layout):
+        detail = rig.data.collections_all.get(FINGERS_DETAIL.name)
+        fingers = rig.data.collections_all.get(FINGERS.name)
+        if detail is None:
+            return
+        for lb in layout:
+            base, dot, side = lb.name.rpartition(".")
+            fk = f"{base}_fk.{side}" if dot else f"{lb.name}_fk"
+            b = rig.data.bones.get(fk)
+            if b is not None:
+                if fingers is not None:
+                    fingers.unassign(b)
+                detail.assign(b)
+
+    def bind_targets(self, spec, layout, rig_bones):
+        return _bind_org_first(layout, rig_bones)
+
+    def fk_controls(self, spec, layout, rig_bones):
+        out = []
+        for lb in layout:
+            if not lb.src:
+                continue
+            base, dot, side = lb.name.rpartition(".")
+            fk = f"{base}_fk.{side}" if dot else f"{lb.name}_fk"
+            if fk in rig_bones:
+                out.append((lb.src, fk, False))
+            elif lb.name in rig_bones:
+                out.append((lb.src, lb.name, False))
+        return out
 
 
 @register_module

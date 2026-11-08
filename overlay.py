@@ -115,8 +115,8 @@ def _line_shader(region, width):
 
 def draw():
     context = bpy.context
-    src = source_of(context.object)
-    if src is None or src.mode == "EDIT":
+    src = context.object
+    if src is None or src.type != "ARMATURE" or src.rig_bridge.source is not None or src.mode == "EDIT":
         return
     st = src.rig_bridge
     if not st.show_sockets and not PLACING["module"]:
