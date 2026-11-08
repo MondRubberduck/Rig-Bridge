@@ -910,6 +910,10 @@ def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False,
     # A constraint-free stand-in for the animation source avoids dependency
     # cycles when the source is the bound skeleton itself.
     drv = anim_obj.copy()
+    if drv.animation_data and drv.animation_data.action and getattr(drv.animation_data, "action_slot", None) is None:
+        slots = getattr(drv.animation_data.action, "slots", None)
+        if slots:
+            drv.animation_data.action_slot = getattr(anim_obj.animation_data, "action_slot", None) or slots[0]
     context.scene.collection.objects.link(drv)
     for pb in drv.pose.bones:
         for c in list(pb.constraints):

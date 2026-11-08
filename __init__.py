@@ -1218,11 +1218,15 @@ class RIGBRIDGE_PT_rig(_Sub, bpy.types.Panel):
         box.prop(st, "bake_mode", text="")
         box.operator("rig_bridge.transfer", icon="IMPORT").mode = st.bake_mode
         col = box.column(align=True)
-        col.label(text="Retarget onto this character:", icon="ARMATURE_DATA")
-        col.operator("rig_bridge.mute", text="1. Release Skeleton", icon="UNLINKED").mute = True
-        col.label(text="2. Retarget onto the skeleton" + (" (BP Retarget)" if _retarget_addon() else ""))
-        col.label(text="3. Bake to Control Rig (re-links)")
-        col.label(text="Retarget from it: Bake to Skeleton first", icon="EXPORT")
+        if _retarget_addon() == "BP Retarget":
+            col.label(text="BP Retarget: pick this rig as Source or Target", icon="ARMATURE_DATA")
+            col.label(text="(bakes to/from the Control Rig automatically)")
+        else:
+            col.label(text="Retarget onto this character:", icon="ARMATURE_DATA")
+            col.operator("rig_bridge.mute", text="1. Release Skeleton", icon="UNLINKED").mute = True
+            col.label(text="2. Retarget onto the skeleton" + (" (BP Retarget)" if _retarget_addon() else ""))
+            col.label(text="3. Bake to Control Rig (re-links)")
+            col.label(text="Retarget from it: Bake to Skeleton first", icon="EXPORT")
 
 
 class RIGBRIDGE_PT_profiles(_Sub, bpy.types.Panel):

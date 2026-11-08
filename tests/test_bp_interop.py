@@ -33,7 +33,12 @@ T.BPR = BPR
 C = bpy.context
 RESULTS = T.RESULTS
 check = T.check
-bpy.ops.preferences.addon_enable(module="bl_ext.user_default.bulletproof_retarget")
+try:
+    bpy.ops.preferences.addon_enable(module="bl_ext.user_default.bulletproof_retarget")
+except Exception:
+    sys.path.insert(0, BPR)
+    import bulletproof_retarget  # noqa: E402
+    bulletproof_retarget.register()
 S = C.scene.bp_retarget
 
 
@@ -229,6 +234,49 @@ def main():
     pe, re_, w = T.compare(daz, daz_ref, djoints, list(range(1, 78, 7)), skip)
     check("Daz control rig reproduces UE5 control-rig motion via BP", pe < 0.01 and re_ < 1.0,
           f"pos {pe * 100:.3f} cm ({T.LAST.get('pos')}), rot {re_:.3f}° ({w[0]})")
+
+    # -- Direct Control Rig -> Control Rig (no manual Bake to Skeleton / Mute) --
+    ue.animation_data.action = None              # ue has no action; ue_rig drives it live
+    daz_rig = daz.rig_bridge.rig
+    daz.animation_data.action = None
+    daz_rig.animation_data.action = None
+    S.source = ue_rig                            # pick control rig directly as Source
+    S.target = daz_rig                           # pick control rig directly as Target
+    S.rig_bridge_bake = True
+    check("BP redirects control-rig Source & Target to driven skeletons",
+          S.source == ue and S.target == daz and S.action is None,
+          f"source={S.source.name}, target={S.target.name}, action={S.action}")
+    r3 = bpy.ops.bpr.retarget()
+    daz.animation_data.action = None
+    pe2, re2, w2 = T.compare(daz, daz_ref, djoints, list(range(1, 78, 7)), skip)
+    check("Direct Control Rig -> Control Rig retarget (1-click)",
+          r3 == {"FINISHED"} and daz_rig.animation_data.action is not None and pe2 < 0.01 and re2 < 1.0,
+          f"pos {pe2 * 100:.3f} cm ({T.LAST.get('pos')}), rot {re2:.3f}° ({w2[0]})")
+
+    # -- Edit animation on UE5 Control Rig and retarget the edited animation ----
+    C.scene.frame_set(15)
+    C.view_layer.update()
+    foot_before = (daz.matrix_world @ daz.pose.bones[dres["foot_l"]].head).copy()
+    ik_foot = ue_rig.pose.bones["foot_ik.L"]
+    ik_foot_saved = ik_foot.location.copy()
+    ik_foot.location.z += 0.20
+    ik_foot.keyframe_insert("location", frame=15)
+    C.view_layer.update()
+    S.source = ue_rig
+    S.target = daz_rig
+    r4 = bpy.ops.bpr.retarget()
+    daz.animation_data.action = None
+    C.scene.frame_set(15)
+    C.view_layer.update()
+    foot_after = (daz.matrix_world @ daz.pose.bones[dres["foot_l"]].head).copy()
+    lift_cm = (foot_after.z - foot_before.z) * 100.0
+    check("Control-rig edit on source transfers to target control rig",
+          r4 == {"FINISHED"} and lift_cm > 10.0, f"foot_l lifted +{lift_cm:.1f} cm")
+    # restore frame 15 for clean scene viewing
+    ik_foot.location = ik_foot_saved
+    ik_foot.keyframe_insert("location", frame=15)
+    bpy.ops.bpr.retarget()
+    daz.animation_data.action = None
 
     # -- scene for viewing ------------------------------------------------------
     for o in (ue_ref, daz_ref):
