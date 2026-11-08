@@ -95,10 +95,10 @@ A starting point is in `examples/tail_module.py`. The profile format is: `{side}
 
 ## Tests
 ```
-blender -b --factory-startup --python tests/test_rig_bridge.py  -- . out.blend   # detection, Rigify, transfer
-blender -b --factory-startup --python tests/build_examples.py   -- . examples.blend  # modular examples scene
-blender -b --factory-startup --python tests/test_standards.py   -- . out.blend [BP Retarget checkout]
-blender -b --factory-startup --python tests/test_bp_interop.py  -- . out.blend <BP Retarget checkout> <UE5 character.fbx>
+blender -b --factory-startup --python tests/test_rig_bridge.py  -- <folder containing rig_bridge> out.blend   # detection, Rigify, transfer
+blender -b --factory-startup --python tests/build_examples.py   -- <folder containing rig_bridge> examples.blend  # modular examples scene
+blender -b --factory-startup --python tests/test_standards.py   -- <folder containing rig_bridge> out.blend [BP Retarget checkout]
+blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder containing rig_bridge> out.blend <BP Retarget checkout> <UE5 character.fbx>
 ```
 * `build_examples.py` builds each example the way a user would (select sockets, click a tile, mirror, Auto Rig, Compile), animates it and measures zero rest drift, knee direction and foot roll, hair lag and settling, cape outside the body collider, tail wave, piston alignment and overlap, eyes on target, IK tip reach, rebuild keeping animation, and dynamics baking.
 * `test_standards.py` builds a skeleton for every standard (from Bulletproof Retarget's own fixtures where they exist), keys a clip, compiles once, runs Bake to Control Rig in all three modes, then removes the skeleton's animation. The rig alone must reproduce the clip on every joint.
