@@ -815,6 +815,7 @@ class RIGBRIDGE_OT_build(_SourceOp, bpy.types.Operator):
             return {"CANCELLED"}
         specs = specs_from_settings(st)
         frame = context.scene.frame_current
+        copy_of = st.rig.rig_bridge.source if st.rig is not None and not builder.owns_rig(src) else None
         try:
             rig, n = builder.build(context, src, specs)
         except builder.BuildError as exc:
@@ -826,6 +827,8 @@ class RIGBRIDGE_OT_build(_SourceOp, bpy.types.Operator):
         # animators work on the control rig only; the game skeleton stays bound
         # (and evaluated) but out of the way – toggle in Animate ▸ Skeleton
         src.hide_set(True)
+        if copy_of is not None:
+            self.report({"WARNING"}, f"'{src.name}' was a copy of '{copy_of.name}': it has its own control rig now")
         self.report({"INFO"}, f"Compiled '{rig.name}': {len(specs)} modules, {n} bones driven")
         return {"FINISHED"}
 
@@ -834,7 +837,7 @@ class _RigOp(_SourceOp):
     @classmethod
     def poll(cls, context):
         src = get_source(context)
-        return src is not None and src.rig_bridge.rig is not None
+        return src is not None and src.rig_bridge.rig is not None and builder.owns_rig(src)
 
 
 class RIGBRIDGE_OT_select_rig(_RigOp, bpy.types.Operator):
@@ -971,7 +974,14 @@ class RIGBRIDGE_OT_bake(_RigOp, bpy.types.Operator):
         a, b = frame_range(context, rig)
         if rig.get("rb_dyn"):
             a, b = context.scene.frame_start, context.scene.frame_end
-        act = builder.bake_to_source(context, src, rig, a, b, src.rig_bridge.mute_after_bake)
+        notes = []
+        try:
+            act = builder.bake_to_source(context, src, rig, a, b, src.rig_bridge.mute_after_bake, notes=notes)
+        except builder.BuildError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        for note in notes:
+            self.report({"WARNING"}, note)
         self.report({"INFO"}, f"Baked frames {a}-{b} into '{act.name if act else '?'}'")
         return {"FINISHED"}
 
@@ -1185,7 +1195,11 @@ class RIGBRIDGE_PT_main(bpy.types.Panel):
         st = src.rig_bridge
         row = layout.row(align=True)
         row.label(text=src.name, icon="ARMATURE_DATA")
-        if st.rig is not None:
+        if st.rig is not None and not builder.owns_rig(src):
+            box = layout.box()
+            box.label(text=f"Copy of '{st.rig.rig_bridge.source.name}': follows that character's rig", icon="ERROR")
+            box.label(text="Compile gives this copy its own control rig")
+        elif st.rig is not None:
             sub = row.row(align=True)
             sub.operator("rig_bridge.select_skeleton", text="Skeleton", icon="BONE_DATA",
                          depress=(context.object is src and src.mode == "POSE"))
@@ -1372,7 +1386,7 @@ class RIGBRIDGE_PT_rig(_Sub, bpy.types.Panel):
     @classmethod
     def poll(cls, context):
         src = get_source(context)
-        return src is not None and src.rig_bridge.rig is not None
+        return src is not None and src.rig_bridge.rig is not None and builder.owns_rig(src)
 
     def draw(self, context):
         layout = self.layout

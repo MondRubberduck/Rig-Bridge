@@ -227,10 +227,97 @@ def placeholder_layout(ctx, spec):
     return out
 
 
+def owns_rig(src):
+    """True if src's control rig belongs to src. A Shift+D copy of a compiled skeleton keeps the
+    original's rig pointer and binding constraints; it must not bake onto or rebuild that rig (QA I3)."""
+    st = getattr(src, "rig_bridge", None)
+    rig = st.rig if st is not None else None
+    if rig is None:
+        return False
+    owner = rig.rig_bridge.source
+    return owner is None or owner == src
+
+
+def detach_copy(src):
+    """A copied skeleton forgets the original's rig and meta-rig and drops the copied binding."""
+    st = src.rig_bridge
+    unbind(src)
+    st.rig = None
+    st.metarig = None
+
+
+_STRIP_PROPS = ("frame_start", "frame_end", "action_frame_start", "action_frame_end", "blend_type", "blend_in",
+                "blend_out", "use_auto_blend", "extrapolation", "influence", "use_animated_influence", "repeat",
+                "scale", "mute", "use_reverse", "use_sync_length")
+
+
+def _snapshot_nla(obj):
+    """Tracks and strips of obj's animation, to put back after Rigify regenerates the rig (QA I5)."""
+    ad = obj.animation_data
+    if ad is None:
+        return None
+    snap = {"action": ad.action, "slot": getattr(getattr(ad, "action_slot", None), "identifier", ""),
+            "blend": ad.action_blend_type, "influence": ad.action_influence,
+            "extrapolation": ad.action_extrapolation, "tracks": []}
+    for tr in ad.nla_tracks:
+        strips = []
+        for st in tr.strips:
+            if st.action is None:
+                continue
+            d = {k: getattr(st, k) for k in _STRIP_PROPS if hasattr(st, k)}
+            d.update(name=st.name, action=st.action,
+                     slot=getattr(getattr(st, "action_slot", None), "identifier", ""))
+            strips.append(d)
+        snap["tracks"].append({"name": tr.name, "mute": tr.mute, "lock": tr.lock, "solo": tr.is_solo,
+                               "strips": strips})
+    return snap
+
+
+def _set_slot(owner, action, ident):
+    if not hasattr(owner, "action_slot") or action is None or not getattr(action, "slots", None):
+        return
+    slot = next((sl for sl in action.slots if sl.identifier == ident), None) or action.slots[0]
+    try:
+        owner.action_slot = slot
+    except Exception:
+        pass
+
+
+def _restore_nla(obj, snap):
+    if not snap:
+        return
+    ad = obj.animation_data_create()
+    for tr in list(ad.nla_tracks):
+        ad.nla_tracks.remove(tr)
+    for td in snap["tracks"]:
+        tr = ad.nla_tracks.new()
+        tr.name = td["name"]
+        for d in td["strips"]:
+            st = tr.strips.new(d["name"], int(d["frame_start"]), d["action"])
+            _set_slot(st, d["action"], d["slot"])
+            for k in _STRIP_PROPS:
+                if k in d and k not in ("frame_start",):
+                    try:
+                        setattr(st, k, d[k])
+                    except Exception:
+                        pass
+        tr.mute, tr.lock = td["mute"], td["lock"]
+        if td["solo"]:
+            tr.is_solo = True
+    if snap["action"] is not None:
+        ad.action = snap["action"]
+        _set_slot(ad, snap["action"], snap["slot"])
+    ad.action_blend_type = snap["blend"]
+    ad.action_influence = snap["influence"]
+    ad.action_extrapolation = snap["extrapolation"]
+
+
 def build(context, src, specs: list[PartSpec]):
     """Create/refresh the meta-rig, generate the Rigify rig, add the native
     modules on top and bind src to the result."""
     ensure_rigify()
+    if src.rig_bridge.rig is not None and not owns_rig(src):
+        detach_copy(src)
     specs = merge_feet(src, [s for s in specs])
     specs = [s for s in specs if any(s.bones)]
     for s in specs:
@@ -378,13 +465,13 @@ def build(context, src, specs: list[PartSpec]):
 
     # --- generate -------------------------------------------------------
     old_rig = settings.rig if settings.rig and settings.rig.name in context.scene.objects else None
-    saved_action = None
+    saved_anim = None
     if old_rig is not None:
         unbind(src)
         native.remove_sims(src.name)
         native._remove_dyn_rig(src)
         if old_rig.animation_data:
-            saved_action = old_rig.animation_data.action
+            saved_anim = _snapshot_nla(old_rig)
             for fc in list(old_rig.animation_data.drivers):     # stale native drivers
                 old_rig.animation_data.drivers.remove(fc)
         old_rig.hide_set(False)
@@ -416,8 +503,8 @@ def build(context, src, specs: list[PartSpec]):
     _apply_layer_visibility(rig)
     if settings.side_colors:
         _side_colors(rig)
-    if saved_action is not None:
-        rig.animation_data_create().action = saved_action
+    if saved_anim is not None:
+        _restore_nla(rig, saved_anim)
 
     # --- store binding information on the rig ---------------------------
     names = set(rig.data.bones.keys())
@@ -716,8 +803,14 @@ def _match_ik_bones(src, bound):
 # Bake rig motion onto the source skeleton (for FBX / game-engine export)
 # ---------------------------------------------------------------------------
 
-def bake_to_source(context, src, rig, start, end, mute_after=True):
+def bake_to_source(context, src, rig, start, end, mute_after=True, notes=None):
+    owner = rig.rig_bridge.source
+    if owner is not None and owner != src:
+        raise BuildError(f"'{src.name}' is a copy and still follows the control rig of '{owner.name}'. "
+                         "Compile it to give it its own rig")
     names = {pb.name for pb in src.pose.bones if any(c.name.startswith(CON_PREFIX) for c in pb.constraints)}
+    prev = src.animation_data.action if src.animation_data else None
+    prev_name = prev.name if prev is not None else ""
     set_mode(context, src, "POSE")
     for pb in src.pose.bones:
         pose_select(pb, pb.name in names)
@@ -729,7 +822,14 @@ def bake_to_source(context, src, rig, start, end, mute_after=True):
     set_mode(context, src, "OBJECT")
     act = src.animation_data.action if src.animation_data else None
     if act is not None:
+        take = rig.animation_data.action.name if rig.animation_data and rig.animation_data.action else rig.name
+        take = take.split("|", 1)[1] if take.startswith(rig.name + "|") else take
+        claim_take_name(act, f"{src.name}|{take}", notes)
+        act[BAKE_TAG] = keys_checksum(act)
         rig["rb_skel_action"] = act.name
+        old = bpy.data.actions.get(prev_name) if prev_name else None
+        if old is not None and old != act:
+            old.use_fake_user = True             # the skeleton's previous take is replaced, not lost
     return act
 
 
@@ -1101,6 +1201,28 @@ def keys_checksum(action):
     return float((crc & 0xFFFFFFFF) ^ count)
 
 
+def claim_take_name(act, base, notes=None):
+    """Name a fresh bake `base`, replacing an earlier bake of that name only if this add-on wrote it and
+    nobody changed it since; an edited take keeps its name (and a fake user), the bake gets _2, _3 ..."""
+    kept, i = None, 1
+    while True:
+        name = base if i == 1 else f"{base}_{i}"
+        old = bpy.data.actions.get(name)
+        if old is None or old == act:
+            break
+        if is_own_bake(old) and old.users - int(old.use_fake_user) == 0:
+            bpy.data.actions.remove(old)
+            break
+        old.use_fake_user = True                 # an edited take: keep it, also through a save
+        kept = kept or old.name
+        i += 1
+    act.name = name
+    if kept and notes is not None:
+        notes.append(f"Kept '{kept}' (changed since it was baked, or baked by an older version); "
+                     f"the new bake is '{name}'")
+    return name
+
+
 def is_own_bake(action):
     """True if Bake to Control Rig wrote the action and nobody has changed its keys since."""
     stored = action.get(BAKE_TAG)
@@ -1108,6 +1230,10 @@ def is_own_bake(action):
 
 
 def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False, mode="FK", notes=None):
+    owner = rig.rig_bridge.source
+    if owner is not None and owner != src:
+        raise BuildError(f"'{src.name}' is a copy and still follows the control rig of '{owner.name}'. "
+                         "Compile it to give it its own rig")
     fk = json.loads(rig.get(FK_KEY, "[]"))
     if not fk:
         raise BuildError("Rig has no FK mapping – rebuild it")
@@ -1205,23 +1331,7 @@ def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False,
     # "Armature|clip"). A previous bake of the same take is replaced only if this
     # add-on wrote it and nobody edited it since (QA I2: a second bake deleted a take
     # that MoCap Cleanup had cleaned); otherwise it stays and the new bake gets _2, _3 ...
-    base = f"{rig.name}|{anim_obj.animation_data.action.name}"
-    kept, i = None, 1
-    while True:
-        name = base if i == 1 else f"{base}_{i}"
-        old = bpy.data.actions.get(name)
-        if old is None or old == act:
-            break
-        if is_own_bake(old) and old.users - int(old.use_fake_user) == 0:
-            bpy.data.actions.remove(old)
-            break
-        old.use_fake_user = True                 # an edited take: keep it, also through a save
-        kept = kept or old.name
-        i += 1
-    act.name = name
-    if kept and notes is not None:
-        notes.append(f"Kept '{kept}' (changed since it was baked, or baked by an older version); "
-                     f"the new bake is '{name}'")
+    claim_take_name(act, f"{rig.name}|{anim_obj.animation_data.action.name}", notes)
     # the take the rig played before is replaced, not lost (like Bulletproof Retarget)
     prev = bpy.data.actions.get(prev_name) if prev_name else None
     if prev is not None and prev != act:

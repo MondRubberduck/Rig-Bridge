@@ -83,7 +83,7 @@ Without Bulletproof Retarget 1.3.2, or with another retargeter:
   * **Dyn. Chain:** hair, ponytails, antennae; soft-body driven.
   * **Cape:** an array of chains simulated as cloth, with collision.
   * **Piston:** the cylinder and rod aim at each other, and the rod pivot stays on its parent.
-  * **Aim:** look-at, with a pair plus a master target. Humanoid eyes get one automatically.
+  * **Aim:** look-at, with a pair plus a master target. Drop it on the eyes yourself: one-click Compile rigs the body only.
 * The dynamics use Blender's own soft body and cloth, so the add-on isn't needed to render, and a render farm will play them back. Press Play from the first frame, or bake.
 
 ## Detection profiles (JSON) and custom modules (Python)
@@ -130,11 +130,13 @@ blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder conta
 
 ## Known limitations
 * Not identical to Unreal. Unreal modules are Control Rig graphs, while these are Rigify rigs or Blender constraints. Unreal's per-module physics (Chain Dynamics/Spring) runs in the solver; here it is a soft body or cloth simulation that needs playback from frame 1 (or a bake) to scrub.
-* No face rig. Eyes get Aim, the jaw a control and the tongue an FK chain.
+* No face rig. One-click Compile rigs the body (spine, neck/head, arms, legs, fingers); eyes, jaw and tongue stay unrigged until you add modules: Aim on the eyes, Control on the jaw, FK Chain on the tongue.
 * In IK, joint positions and the hand/foot/body pose are exact. The roll of the upper and lower arm/leg follows the rig's elbow/knee hinge. If the source animation twists the forearm, switch that limb to FK or use Full FK.
 * A knee or elbow that the source bends slightly backwards (a locked-out punch or kick in mocap) comes out straight in IK, because the IK chain can't bend backwards: the joint can sit up to a centimetre or two off, the limb keeps its roll. FK reproduces it exactly.
 * Multi-bone necks (UE5 `neck_01/02`, CC `NeckTwist01/02`, Daz `neckLower/Upper`): Bake to Control Rig also keys Rigify's neck tweaks, so every neck bone is reproduced exactly. When you animate by hand, the neck control bends the whole neck and the tweaks adjust single bones.
-* Humanoid eyes get an Aim module whose target rides on the head, so the eyes turn with the head.
+* An Aim module on the eyes gets a target that rides on the head, so the eyes turn with the head.
+* Takes that move bones along their length (optical solves such as OptiTrack Motive keep small per-bone translations) are reproduced through rotations only: expect up to 1–2 cm at the head.
+* A Shift+D copy of a compiled skeleton still follows the original's control rig; its Animate tools stay off until you Compile it, which gives it its own rig. Duplicating skeleton and control rig together gives an independent copy.
 * Twist and share bones are correctives: Rig Bridge drives them, while a plain retarget leaves them rigid. Expect the skin around the shoulders, elbows, knees and toes to differ from an un-rigged retarget. That is intended.
 * Twist bones are driven like UE: the upper arm and thigh twist from the parent, the forearm and calf take a share of the hand/foot twist, set by each bone's position along the limb. CC "ShareBone" correctives take half the joint rotation. UE `ik_foot_*` / `ik_hand_*` bones follow the feet and hands, so exported animation keeps in-engine IK working.
 * After Compile the game skeleton is hidden but stays bound. Use *Animate ▸ Skeleton ▸ Show* to see it.
