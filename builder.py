@@ -762,10 +762,11 @@ def _ik_limbs(rig):
     return out
 
 
-def _key_matrix(pb, m, frame, prev_q):
-    """Pose bone to armature-space matrix `m`, keyed; quaternion sign kept continuous."""
+def _pose_values(pb, m, prev_q):
+    """Pose bone to armature-space matrix `m` (not keyed). Returns its local channels
+    {data_path: tuple}; quaternion sign kept continuous with the previous call."""
     pb.matrix = m
-    pb.keyframe_insert("location", frame=frame)
+    out = {"location": tuple(pb.location)}
     if pb.rotation_mode == "QUATERNION":
         q = pb.rotation_quaternion.copy()
         p = prev_q.get(pb.name)
@@ -773,22 +774,88 @@ def _key_matrix(pb, m, frame, prev_q):
             q.negate()
             pb.rotation_quaternion = q
         prev_q[pb.name] = q
-        pb.keyframe_insert("rotation_quaternion", frame=frame)
+        out["rotation_quaternion"] = tuple(q)
     elif pb.rotation_mode == "AXIS_ANGLE":
-        pb.keyframe_insert("rotation_axis_angle", frame=frame)
+        out["rotation_axis_angle"] = tuple(pb.rotation_axis_angle)
     else:
         p = prev_q.get(pb.name)
         if p is not None:
             pb.rotation_euler = pb.rotation_euler.to_matrix().to_euler(pb.rotation_mode, p)
         prev_q[pb.name] = pb.rotation_euler.copy()
-        pb.keyframe_insert("rotation_euler", frame=frame)
+        out["rotation_euler"] = tuple(pb.rotation_euler)
+    return out
+
+
+def _fcurve(obj, path, index, group):
+    act = obj.animation_data.action
+    if hasattr(act, "fcurve_ensure_for_datablock"):          # Blender 4.4+: slotted actions
+        return act.fcurve_ensure_for_datablock(obj, path, index=index, group_name=group)
+    fc = act.fcurves.find(path, index=index)
+    return fc if fc is not None else act.fcurves.new(path, index=index, action_group=group)
+
+
+def _write_keys(obj, bone, channels):
+    """Write keys in bulk: channels = {data_path_tail: {frame: tuple}} for pose bone `bone`.
+    Existing keys on those frames are replaced, keys on other frames are kept.
+
+    Inserting keys one at a time while the scene is re-evaluated in between makes Blender copy the
+    whole action for every evaluation, which grows with the length of the take (QA R1)."""
+    import numpy as np
+    prefs = bpy.context.preferences.edit
+    ipo = prefs.keyframe_new_interpolation_type
+    handle = prefs.keyframe_new_handle_type
+    for tail, per_frame in channels.items():
+        if not per_frame:
+            continue
+        frames = sorted(per_frame)
+        path = f'pose.bones["{bpy.utils.escape_identifier(bone)}"].{tail}'
+        width = len(per_frame[frames[0]])
+        for i in range(width):
+            fc = _fcurve(obj, path, i, bone)
+            new = {f: per_frame[f][i] for f in frames}
+            n = len(fc.keyframe_points)
+            if n:
+                co = np.empty(2 * n)
+                fc.keyframe_points.foreach_get("co", co)
+                for f, v in co.reshape(-1, 2):
+                    if int(round(f)) not in new and abs(f - round(f)) < 1e-4:
+                        new[int(round(f))] = v
+                    elif abs(f - round(f)) >= 1e-4:
+                        new[float(f)] = v
+            keys = sorted(new)
+            fc.keyframe_points.clear()
+            fc.keyframe_points.add(len(keys))
+            co = np.empty(2 * len(keys))
+            co[0::2] = keys
+            co[1::2] = [new[k] for k in keys]
+            fc.keyframe_points.foreach_set("co", co)
+            fc.keyframe_points.foreach_set("interpolation", [bpy.types.Keyframe.bl_rna.properties["interpolation"].enum_items[ipo].value] * len(keys))
+            for attr in ("handle_left_type", "handle_right_type"):
+                fc.keyframe_points.foreach_set(attr, [bpy.types.Keyframe.bl_rna.properties[attr].enum_items[handle].value] * len(keys))
+            fc.update()
+
+
+def _quat_continuous(per_frame):
+    """Keep the sign of a quaternion channel continuous over the frames (in place)."""
+    prev = None
+    for f in sorted(per_frame):
+        q = per_frame[f]
+        if prev is not None and sum(x * y for x, y in zip(prev, q)) < 0:
+            q = tuple(-x for x in q)
+            per_frame[f] = q
+        prev = q
 
 
 def bake_ik_controls(context, rig, start, end):
     """Key every IK control (and its pole) to where the FK pose puts the limb.
     Run while the limbs are in FK; afterwards the IK/FK switch can be flipped on
     any frame without the pose changing – like Unreal's Bake to Control Rig,
-    which solves both control sets."""
+    which solves both control sets.
+
+    Nothing is keyed inside the frame loops: values are collected and written once per channel
+    (QA R1: per-frame keying made the bake quadratic in the take length).
+    The pole follows the FK upper bone's own bend axis, not the joint positions, so a straight or
+    slightly over-straight limb keeps its roll (QA R5: such limbs flipped 180 degrees in IK)."""
     limbs = _ik_limbs(rig)
     if not limbs:
         return 0
@@ -797,13 +864,20 @@ def bake_ik_controls(context, rig, start, end):
     for kind, n in limbs:
         off = R[f"ORG-{n['c']}"].matrix_local.inverted() @ R[n["ik"]].matrix_local
         pole_rot = R[n["pole"]].matrix_local.to_3x3().to_4x4()
-        rest_bend = _bend_dir(R[f"ORG-{n['a']}"].head_local, R[f"ORG-{n['b']}"].head_local,
-                              R[f"ORG-{n['c']}"].head_local) or (R[n["pole"]].head_local
-                                                                - R[f"ORG-{n['b']}"].head_local).normalized()
+        A0, K0, C0 = (R[f"ORG-{n[k]}"].head_local for k in ("a", "b", "c"))
+        # the bend axis is where the rig's pole sits (it defines the IK chain's bend plane); the joint
+        # positions only as a fallback (a straight rest limb has no measurable bend of its own)
+        ax0 = (C0 - A0).normalized()
+        to_pole = R[n["pole"]].head_local - K0
+        rest_bend = to_pole - ax0 * to_pole.dot(ax0)
+        rest_bend = (rest_bend.normalized() if rest_bend.length > 1e-6 else
+                     _bend_dir(A0, K0, C0) or to_pole.normalized())
         # pole position in a frame built from the limb (origin = middle joint,
         # x = bend direction, y = root->end), so any rest offset is reproduced
-        A0, K0, C0 = (R[f"ORG-{n[k]}"].head_local for k in ("a", "b", "c"))
         pole_local = _limb_frame(A0, K0, C0, rest_bend).transposed() @ (R[n["pole"]].head_local - K0)
+        # the bend direction in the upper bone's own frame: carried along by its rotation it gives the
+        # limb's bend axis on every frame, also when the limb is straight
+        bend_local = (R[f"ORG-{n['a']}"].matrix_local.to_3x3().normalized().inverted() @ rest_bend).normalized()
         par = P[n["par"]]
         if "pole_vector" in par.keys():
             par["pole_vector"] = type(par["pole_vector"])(1)
@@ -811,51 +885,98 @@ def bake_ik_controls(context, rig, start, end):
         for extra in (f"foot_heel_ik.{n['ik'][-1]}", f"foot_spin_ik.{n['ik'][-1]}"):
             if kind == "leg" and extra in P:
                 P[extra].matrix_basis = Matrix()
-        info.append((kind, n, off, pole_local, pole_rot, rest_bend))
+        info.append((kind, n, off, pole_local, pole_rot, bend_local))
     prev_q, last_bend = {}, {}
     scene = context.scene
     samples = {}
-    for f in range(start, end + 1):
+    keys = {}                                   # bone -> data path -> {frame: values}
+
+    def put(bone, values, f):
+        for path, v in values.items():
+            keys.setdefault(bone, {}).setdefault(path, {})[f] = v
+
+    frames = range(start, end + 1)
+    for f in frames:
         scene.frame_set(f)
-        for kind, n, off, pole_local, pole_rot, rest_bend in info:
+        poles = []
+        for kind, n, off, pole_local, pole_rot, bend_local in info:
             org = lambda k: P[f"ORG-{n[k]}"].matrix  # noqa: E731
             a, b, c = org("a").translation, org("b").translation, org("c").translation
-            bend = _bend_dir(a, b, c) or last_bend.get(n["ik"], rest_bend)
+            y = c - a
+            bend = org("a").to_3x3().normalized() @ bend_local
+            bend = bend - y.normalized() * bend.dot(y.normalized()) if y.length > 1e-8 else bend
+            if bend.length < 1e-6:
+                bend = last_bend.get(n["ik"]) or _bend_dir(a, b, c) or Vector((1, 0, 0))
+            bend = bend.normalized()
             last_bend[n["ik"]] = bend
-            samples[(n["ik"], f)] = (a.copy(), b.copy(), c.copy(), bend.copy(), org("a").copy())
-            m_ik = org("c") @ off
-            m_pole = Matrix.Translation(b + _limb_frame(a, b, c, bend) @ pole_local) @ pole_rot
-            _key_matrix(P[n["ik"]], m_ik, f, prev_q)
-            context.view_layer.update()          # the pole may hang from the IK control
-            _key_matrix(P[n["pole"]], m_pole, f, prev_q)
-    # Make it exact: on every frame switch the limb to IK, measure how far the
-    # elbow/knee ended up rotated about the root->end axis and turn the pole
-    # back by that much (converges in 1-2 steps; solver/pole-angle independent).
-    for kind, n, off, pole_local, pole_rot, rest_bend in info:
-        par = P[n["par"]]
-        if "IK_FK" not in par.keys():
-            continue
-        for f in range(start, end + 1):
-            a, b, c, bend, _ = samples[(n["ik"], f)]
+            samples[(n["ik"], f)] = (a.copy(), b.copy(), c.copy(), bend.copy())
+            put(n["ik"], _pose_values(P[n["ik"]], org("c") @ off, prev_q), f)
+            poles.append((n, Matrix.Translation(b + _limb_frame(a, b, c, bend) @ pole_local) @ pole_rot))
+        context.view_layer.update()              # a pole may hang from its IK control
+        for n, m_pole in poles:
+            put(n["pole"], _pose_values(P[n["pole"]], m_pole, prev_q), f)
+    for bone, chans in keys.items():
+        for path, per_frame in chans.items():
+            if path == "rotation_quaternion":
+                _quat_continuous(per_frame)
+        _write_keys(rig, bone, chans)
+
+    # Make it exact: on every frame switch the limbs to IK, measure how far the elbow/knee ended up
+    # rotated about the root->end axis and turn the pole back by that much (converges in 1-2 steps).
+    # A limb that is straight, or bent the other way than its joint bends (slightly over-straight in
+    # the take), keeps the pole on its own bend axis: IK cannot bend backwards, and following such a
+    # knee would roll the whole limb by 180 degrees.
+    exact = [(kind, n, pole_local, pole_rot) for kind, n, _o, pole_local, pole_rot, _b in info
+             if "IK_FK" in P[n["par"]].keys()]
+    fixed = {}
+    for f in frames:
+        scene.frame_set(f)
+        todo = []
+        for kind, n, pole_local, pole_rot in exact:
+            a, b, c, bend = samples[(n["ik"], f)]
             ax = (c - a).normalized()
-            off_w = _limb_frame(a, b, c, bend) @ pole_local
-            scene.frame_set(f)
-            for _ in range(4):
-                par["IK_FK"] = 0.0
-                rig.update_tag()             # custom props don't tag the depsgraph by themselves
-                context.view_layer.update()
+            u = b - a - ax * (b - a).dot(ax)
+            if u.length < 1e-3 * (c - a).length or u.dot(bend) <= 0.0:
+                continue
+            todo.append([n, pole_rot, a, b, ax, u, _limb_frame(a, b, c, bend) @ pole_local])
+        if not todo:
+            continue
+        for item in todo:
+            P[item[0]["par"]]["IK_FK"] = 0.0
+        for _ in range(4):
+            rig.update_tag()                     # custom props don't tag the depsgraph by themselves
+            context.view_layer.update()
+            left = []
+            for item in todo:
+                n, pole_rot, a, b, ax, u, off_w = item
                 b_ik = P[f"ORG-{n['b']}"].matrix.translation
-                u = b - a - ax * (b - a).dot(ax)
                 v = b_ik - a - ax * (b_ik - a).dot(ax)
-                if u.length < 1e-6 or v.length < 1e-6:
-                    break
+                if v.length < 1e-6:
+                    continue
                 ang = math.atan2(u.cross(v).dot(ax), u.dot(v))
                 if abs(ang) < 1e-5:
-                    break
-                off_w = Matrix.Rotation(-ang, 3, ax) @ off_w
-                _key_matrix(P[n["pole"]], Matrix.Translation(b + off_w) @ pole_rot, f, prev_q)
-        par["IK_FK"] = 1.0
-        rig.update_tag()
+                    continue
+                item[6] = Matrix.Rotation(-ang, 3, ax) @ off_w
+                fixed.setdefault(n["pole"], {})[f] = _pose_values(
+                    P[n["pole"]], Matrix.Translation(b + item[6]) @ pole_rot, prev_q)
+                left.append(item)
+            if not left:
+                break
+            todo = left
+        for kind, n, pole_local, pole_rot in exact:
+            P[n["par"]]["IK_FK"] = 1.0
+    for bone, per_frame in fixed.items():
+        chans = {}
+        for f, values in per_frame.items():
+            for path, v in values.items():
+                chans.setdefault(path, {})[f] = v
+        if "rotation_quaternion" in chans:
+            merged = dict(keys[bone]["rotation_quaternion"])
+            merged.update(chans["rotation_quaternion"])
+            _quat_continuous(merged)
+            chans["rotation_quaternion"] = {f: merged[f] for f in chans["rotation_quaternion"]}
+        _write_keys(rig, bone, chans)
+    rig.update_tag()
     return len(info)
 
 
@@ -923,7 +1044,7 @@ def _fix_root_translation(context, rig, drv, entries, start, end):
     """Rigify's FK hips/spine pivot elsewhere than the source pelvis, so copying
     rotations shifts the body a little. Move the located control (torso) by the
     remaining pelvis offset on every frame – exact, because rotations don't
-    depend on the torso's position."""
+    depend on the torso's position. Collected first and written once (QA R1)."""
     d, ctrl = _root_located(entries)
     if not ctrl:
         return ""
@@ -933,6 +1054,7 @@ def _fix_root_translation(context, rig, drv, entries, start, end):
         return ""
     pb = rig.pose.bones[ctrl]
     inv = rig.matrix_world.inverted()
+    loc = {}
     for f in range(start, end + 1):
         context.scene.frame_set(f)
         err = (drv.matrix_world @ drv.pose.bones[d].head) - (rig.matrix_world @ rig.pose.bones[bind].head)
@@ -941,7 +1063,9 @@ def _fix_root_translation(context, rig, drv, entries, start, end):
         m = pb.matrix.copy()
         m.translation += inv.to_3x3() @ err
         pb.matrix = m
-        pb.keyframe_insert("location", frame=f)
+        loc[f] = tuple(pb.location)
+    if loc:
+        _write_keys(rig, ctrl, {"location": loc})
     return ctrl
 
 

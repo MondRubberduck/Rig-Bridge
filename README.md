@@ -132,6 +132,7 @@ blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder conta
 * Not identical to Unreal. Unreal modules are Control Rig graphs, while these are Rigify rigs or Blender constraints. Unreal's per-module physics (Chain Dynamics/Spring) runs in the solver; here it is a soft body or cloth simulation that needs playback from frame 1 (or a bake) to scrub.
 * No face rig. Eyes get Aim, the jaw a control and the tongue an FK chain.
 * In IK, joint positions and the hand/foot/body pose are exact. The roll of the upper and lower arm/leg follows the rig's elbow/knee hinge. If the source animation twists the forearm, switch that limb to FK or use Full FK.
+* A knee or elbow that the source bends slightly backwards (a locked-out punch or kick in mocap) comes out straight in IK, because the IK chain can't bend backwards: the joint can sit up to a centimetre or two off, the limb keeps its roll. FK reproduces it exactly.
 * Multi-bone necks (UE5 `neck_01/02`, CC `NeckTwist01/02`, Daz `neckLower/Upper`): Bake to Control Rig also keys Rigify's neck tweaks, so every neck bone is reproduced exactly. When you animate by hand, the neck control bends the whole neck and the tweaks adjust single bones.
 * Humanoid eyes get an Aim module whose target rides on the head, so the eyes turn with the head.
 * Twist and share bones are correctives: Rig Bridge drives them, while a plain retarget leaves them rigid. Expect the skin around the shoulders, elbows, knees and toes to differ from an un-rigged retarget. That is intended.
