@@ -994,12 +994,15 @@ class RIGBRIDGE_OT_transfer(_RigOp, bpy.types.Operator):
         anim = st.anim_source or src
         a, b = frame_range(context, anim)
         try:
-            act, n = builder.transfer_to_rig(context, src, st.rig, anim, a, b, mode=self.mode)
+            notes = []
+            act, n = builder.transfer_to_rig(context, src, st.rig, anim, a, b, mode=self.mode, notes=notes)
             if anim is src:
                 builder.set_bind_muted(src, False)   # the control rig drives the skeleton again
         except builder.BuildError as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        for note in notes:
+            self.report({"WARNING"}, note)
         self.report({"INFO"}, f"Transferred {n} controls, frames {a}-{b} → '{act.name}'")
         return {"FINISHED"}
 

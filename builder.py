@@ -1075,7 +1075,39 @@ def _root_located(entries):
     return next(((d, c) for d, c in loc if c == "torso"), loc[0] if loc else ("", ""))
 
 
-def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False, mode="FK"):
+BAKE_TAG = "rig_bridge_bake"   # on baked takes: a checksum of their keys (older versions stored True)
+
+
+def _action_fcurves(action):
+    if hasattr(action, "layers"):
+        for layer in action.layers:
+            for strip in layer.strips:
+                for bag in strip.channelbags:
+                    yield from bag.fcurves
+    else:
+        yield from action.fcurves
+
+
+def keys_checksum(action):
+    import zlib
+    import numpy as np
+    crc, count = 0, 0
+    for fc in _action_fcurves(action):
+        n = len(fc.keyframe_points)
+        co = np.empty(2 * n, dtype=np.float32)
+        fc.keyframe_points.foreach_get("co", co)
+        count += n
+        crc = zlib.crc32(fc.data_path.encode() + bytes([fc.array_index & 255]) + co.tobytes(), crc)
+    return float((crc & 0xFFFFFFFF) ^ count)
+
+
+def is_own_bake(action):
+    """True if Bake to Control Rig wrote the action and nobody has changed its keys since."""
+    stored = action.get(BAKE_TAG)
+    return isinstance(stored, float) and abs(stored - keys_checksum(action)) < 1e-3
+
+
+def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False, mode="FK", notes=None):
     fk = json.loads(rig.get(FK_KEY, "[]"))
     if not fk:
         raise BuildError("Rig has no FK mapping – rebuild it")
@@ -1151,6 +1183,8 @@ def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False,
     # controls hang from ORG-hand, which follows IK otherwise), other controls at rest
     if rig.animation_data is None:
         rig.animation_data_create()
+    prev = rig.animation_data.action
+    prev_name = prev.name if prev is not None else ""
     rig.animation_data.action = None
     for bc in rig.data.collections_all:
         if not bc.name.startswith(("ORG", "MCH", "DEF", "RB ", "RigBridge")):
@@ -1168,13 +1202,30 @@ def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False,
                      use_current_action=False, bake_types={"POSE"})
     act = rig.animation_data.action
     # one readable name per rig and take: "<rig>|<action>" (like Blender's FBX
-    # "Armature|clip"); a previous bake of the same take is replaced, not piled up
-    name = f"{rig.name}|{anim_obj.animation_data.action.name}"
-    old = bpy.data.actions.get(name)
-    if old is not None and old != act and old.get("rig_bridge_bake") and old.users - int(old.use_fake_user) == 0:
-        bpy.data.actions.remove(old)
+    # "Armature|clip"). A previous bake of the same take is replaced only if this
+    # add-on wrote it and nobody edited it since (QA I2: a second bake deleted a take
+    # that MoCap Cleanup had cleaned); otherwise it stays and the new bake gets _2, _3 ...
+    base = f"{rig.name}|{anim_obj.animation_data.action.name}"
+    kept, i = None, 1
+    while True:
+        name = base if i == 1 else f"{base}_{i}"
+        old = bpy.data.actions.get(name)
+        if old is None or old == act:
+            break
+        if is_own_bake(old) and old.users - int(old.use_fake_user) == 0:
+            bpy.data.actions.remove(old)
+            break
+        old.use_fake_user = True                 # an edited take: keep it, also through a save
+        kept = kept or old.name
+        i += 1
     act.name = name
-    act["rig_bridge_bake"] = True
+    if kept and notes is not None:
+        notes.append(f"Kept '{kept}' (changed since it was baked, or baked by an older version); "
+                     f"the new bake is '{name}'")
+    # the take the rig played before is replaced, not lost (like Bulletproof Retarget)
+    prev = bpy.data.actions.get(prev_name) if prev_name else None
+    if prev is not None and prev != act:
+        prev.use_fake_user = True
 
     # cleanup helpers
     if keep_helpers:
@@ -1216,5 +1267,6 @@ def transfer_to_rig(context, src, rig, anim_obj, start, end, keep_helpers=False,
     set_ik_mode(rig, mode, start)
     rig["rb_baked_from"] = anim_obj.animation_data.action.name if anim_obj.animation_data and \
         anim_obj.animation_data.action else ""
+    act[BAKE_TAG] = keys_checksum(act)          # "own, unedited" until someone changes a key
     set_mode(context, rig, "OBJECT")
     return act, len(entries)
