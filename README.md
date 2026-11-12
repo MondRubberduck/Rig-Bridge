@@ -6,7 +6,7 @@
 
 ![Five imported characters, each with its own Rig Bridge control rig, playing the same P2M animation](docs/media/hero.jpg)
 
-A Blender add-on (4.2+, tested on 5.2.3) that works like a **modular control rig**, modelled on Unreal Engine's Modular Control Rig. Drop modules onto the sockets of any skeleton, click **Compile**, and you get a control rig that drives the original bones without changing them. Humanoids from **20 skeleton standards** are recognised automatically (Mixamo, UE4/UE5/UEFN/MetaHuman, Character Creator/ActorCore/AccuRIG, Daz G3/G8/G9, VRoid, VRM/Unity, Rigify/ARP exports, HumanIK, OptiTrack, CMU, Biped, VRChat, MMD, RenderPeople). Tails, hair, capes, pistons, eyes and tentacles have their own modules.
+A Blender add-on (4.2+, tested on 5.2 and 5.3) that works like a **modular control rig**, modelled on Unreal Engine's Modular Control Rig. Drop modules onto the sockets of any skeleton, click **Compile**, and you get a control rig that drives the original bones without changing them. Humanoids from **20 skeleton standards** are recognised automatically (Mixamo, UE4/UE5/UEFN/MetaHuman, Character Creator/ActorCore/AccuRIG, Daz G3/G8/G9, VRoid, VRM/Unity, Rigify/ARP exports, HumanIK, OptiTrack, CMU, Biped, VRChat, MMD, RenderPeople). Tails, hair, capes, pistons, eyes and tentacles have their own modules.
 
 ```
 Skeleton ── sockets ──▶ modules (lego pieces) ──Compile──▶ control rig ──BIND- helpers──▶ original bones
@@ -37,10 +37,10 @@ The automated suites pass 39/39, 52/52 and 142/142 checks (see *Tests*).
 
 ## Install
 1. Download `rig_bridge-<version>.zip` from [Releases](https://github.com/MondRubberduck/Rig-Bridge/releases/latest).
-2. Drag it into Blender (4.2+, tested on 5.2.3), or use *Edit ▸ Preferences ▸ Get Extensions ▸ ⌄ ▸ Install from Disk…*.
+2. Drag it into Blender (4.2+, tested on 5.2 and 5.3), or use *Edit ▸ Preferences ▸ Get Extensions ▸ ⌄ ▸ Install from Disk…*.
 3. Open *3D View ▸ Sidebar (N) ▸ Rig Bridge*. Rigify, which ships with Blender, is enabled automatically.
 
-For retargeting, also install [Bulletproof Retarget](https://github.com/MondRubberduck/Bulletproof-Retarget/releases/latest) 1.3.2 or newer. The two add-ons are independent: Rig Bridge does rigging, Bulletproof Retarget does retargeting.
+For retargeting, also install [Bulletproof Retarget](https://github.com/MondRubberduck/Bulletproof-Retarget/releases/latest) 1.3.2 or newer (1.3.4 recommended). The two add-ons are independent: Rig Bridge does rigging, Bulletproof Retarget does retargeting.
 
 ## Workflow (3D View ▸ Sidebar ▸ *Rig Bridge*, skeleton in Pose Mode)
 | Unreal Modular Control Rig | Rig Bridge |
@@ -105,6 +105,14 @@ blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder conta
 * `test_bp_interop.py` runs the full round trip with the real Bulletproof Retarget installed from its release zip: Mixamo mocap → UE5 character → Bake to Control Rig → Bake to Skeleton → Daz G8 → Daz control rig. Each step is compared with a plain, unrigged retarget.
 
 ## Changelog
+* **1.1.0**
+  * **Bake to Control Rig is up to 9x faster and no longer slows down on long takes.** Keys were inserted one at a time while the scene was re-evaluated, and Blender copied the whole baked action for every evaluation: a 3-minute take took 32-48 minutes. It now takes 4-6 minutes, and the time grows linearly with the take.
+  * **Straight limbs keep their roll in IK.** A fully straight leg or arm (kicks, punches) could flip 180 degrees in IK on single frames; the IK pole now follows the FK chain's own bend axis. A knee or elbow that the source bends slightly backwards comes out straight in IK (FK stays exact).
+  * **An edited take survives a second bake.** Baking again replaces only an unedited take of this add-on; a take you or another tool changed (e.g. MoCap Cleanup Studio) keeps its name and a fake user, and the new bake gets `_2`, `_3` ...
+  * **Shift+D copies are safe.** A copied skeleton no longer bakes onto, or recompiles, the original character's rig; Compile gives the copy its own rig.
+  * **Recompile keeps NLA tracks**, not only the active action.
+  * **Bake to Skeleton names its take** `<skeleton>|<take>` instead of `Action`.
+* **1.0.0**: UE5-style Modular Control Rig workflow, smart socket intent, live module swapping, 1-click Generate Control Rig.
 * **0.4.2**
   * One-click **Compile** runs standard/topology detection first, generating a pure Rigify rig without stacking non-Rigify controls onto sub-toes, jaw, tongue or eyes.
   * Metacarpals (`palm`) now use Rigify's `limbs.super_palm` (`palm.L` / `palm.R` bow control on *Fingers*, individual FK bones on *Fingers (Detail)*) instead of separate `basic.super_copy` spheres.
