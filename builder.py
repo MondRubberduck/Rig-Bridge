@@ -1023,9 +1023,10 @@ def bake_ik_controls(context, rig, start, end):
 
     # Make it exact: on every frame switch the limbs to IK, measure how far the elbow/knee ended up
     # rotated about the root->end axis and turn the pole back by that much (converges in 1-2 steps).
-    # A limb that is straight, or bent the other way than its joint bends (slightly over-straight in
-    # the take), keeps the pole on its own bend axis: IK cannot bend backwards, and following such a
-    # knee would roll the whole limb by 180 degrees.
+    # A limb that is straight, or bent the other way than its joint bends (over-straight in the take),
+    # keeps the pole on its own bend axis: IK cannot bend backwards, and following such a knee would
+    # roll the whole limb by 180 degrees. The joint then comes out bent forwards by the same angle (a
+    # mirror image; the hand or foot stays exact): up to 7 cm off on a fight take's 9 degree knee.
     exact = [(kind, n, pole_local, pole_rot) for kind, n, _o, pole_local, pole_rot, _b in info
              if "IK_FK" in P[n["par"]].keys()]
     fixed = {}
