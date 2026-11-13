@@ -40,7 +40,7 @@ The automated suites pass 39/39, 52/52 and 142/142 checks (see *Tests*).
 2. Drag it into Blender (4.2+, tested on 5.2 and 5.3), or use *Edit ▸ Preferences ▸ Get Extensions ▸ ⌄ ▸ Install from Disk…*.
 3. Open *3D View ▸ Sidebar (N) ▸ Rig Bridge*. Rigify, which ships with Blender, is enabled automatically.
 
-For retargeting, also install [Bulletproof Retarget](https://github.com/MondRubberduck/Bulletproof-Retarget/releases/latest) 1.3.2 or newer (1.3.4 recommended). The two add-ons are independent: Rig Bridge does rigging, Bulletproof Retarget does retargeting.
+For retargeting, also install [Bulletproof Retarget](https://github.com/MondRubberduck/Bulletproof-Retarget/releases/latest) 1.3.2 or newer (1.3.5 recommended). The two add-ons are independent: Rig Bridge does rigging, Bulletproof Retarget does retargeting.
 
 ## Workflow (3D View ▸ Sidebar ▸ *Rig Bridge*, skeleton in Pose Mode)
 | Unreal Modular Control Rig | Rig Bridge |
@@ -105,11 +105,11 @@ blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder conta
 * `test_bp_interop.py` runs the full round trip with the real Bulletproof Retarget installed from its release zip: Mixamo mocap → UE5 character → Bake to Control Rig → Bake to Skeleton → Daz G8 → Daz control rig. Each step is compared with a plain, unrigged retarget.
 
 ## Changelog
-* **1.1.1**
+* **1.2.0**
   * **Docs:** a knee or elbow that the source bends backwards does not come out "straight, a centimetre or two off" in IK, as 1.1.0 said: it is bent forwards by the same angle, and can sit several centimetres off (7 cm at most on a 3-minute fight take). Nothing changed in the bake; see Known limitations.
 * **1.1.0**
   * **Bake to Control Rig is up to 9x faster and no longer slows down on long takes.** Keys were inserted one at a time while the scene was re-evaluated, and Blender copied the whole baked action for every evaluation: a 3-minute take took 32-48 minutes. It now takes 4-6 minutes, and the time grows linearly with the take.
-  * **Straight limbs keep their roll in IK.** A fully straight leg or arm (kicks, punches) could flip 180 degrees in IK on single frames; the IK pole now follows the FK chain's own bend axis. A knee or elbow that the source bends backwards comes out bent forwards by the same angle in IK (corrected in 1.1.1; FK stays exact).
+  * **Straight limbs keep their roll in IK.** A fully straight leg or arm (kicks, punches) could flip 180 degrees in IK on single frames; the IK pole now follows the FK chain's own bend axis. A knee or elbow that the source bends backwards comes out bent forwards by the same angle in IK (corrected in 1.2.0; FK stays exact).
   * **An edited take survives a second bake.** Baking again replaces only an unedited take of this add-on; a take you or another tool changed (e.g. MoCap Cleanup Studio) keeps its name and a fake user, and the new bake gets `_2`, `_3` ...
   * **Shift+D copies are safe.** A copied skeleton no longer bakes onto, or recompiles, the original character's rig; Compile gives the copy its own rig.
   * **Recompile keeps NLA tracks**, not only the active action.
