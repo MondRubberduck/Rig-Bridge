@@ -38,7 +38,7 @@ from . import builder, detect, modular, modules, native, overlay, resolve, stdma
 from .modules import CATEGORIES, MODULES, PartSpec
 from .naming import core_tokens, is_helper, side_of
 
-sys.modules.setdefault("rig_bridge_api", modules)   # stable import name for user modules
+API_NAME = "rig_bridge_api"   # what user modules import: `from rig_bridge_api import Module, register_module`
 _ENUM_CACHE = {}
 
 
@@ -416,16 +416,33 @@ def frame_range(context, obj=None):
 
 
 def load_user_modules():
-    d = detect.user_dir("modules")
-    for path in sorted(glob.glob(os.path.join(d, "*.py"))):
-        name = f"rig_bridge_user_{os.path.splitext(os.path.basename(path))[0]}"
-        try:
-            spec = importlib.util.spec_from_file_location(name, path)
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules[name] = mod
-            spec.loader.exec_module(mod)
-        except Exception as exc:
-            print(f"[Rig Bridge] user module {path} failed: {exc}")
+    """Load the module files in the user ``modules`` folder.
+
+    ``rig_bridge_api`` exists only while they load, and the files are kept under this add-on's
+    package: an extension must not leave top-level modules behind (Blender lists that as a
+    "Policy violation with top level module" in Preferences). So import it at the top of the file.
+    """
+    paths = sorted(glob.glob(os.path.join(detect.user_dir("modules"), "*.py")))
+    if not paths:
+        return
+    before = sys.modules.get(API_NAME)
+    sys.modules[API_NAME] = modules
+    try:
+        for path in paths:
+            name = f"{__package__ or 'rig_bridge'}.user_modules.{os.path.splitext(os.path.basename(path))[0]}"
+            try:
+                spec = importlib.util.spec_from_file_location(name, path)
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[name] = mod
+                spec.loader.exec_module(mod)
+            except Exception as exc:
+                sys.modules.pop(name, None)
+                print(f"[Rig Bridge] user module {path} failed: {exc}")
+    finally:
+        if before is None:
+            sys.modules.pop(API_NAME, None)
+        else:
+            sys.modules[API_NAME] = before
 
 
 def _redraw(context):

@@ -91,7 +91,7 @@ Profiles map names to modules. The built-in ones are `mixamo` and `unreal`, and 
 ```python
 from rig_bridge_api import Module, register_module
 ```
-A starting point is in `examples/tail_module.py`. The profile format is: `{side}`, a `?` prefix for optional bones, `extends`, `strip_prefix`, per-part `settings` and a `parent` socket.
+Import it at the top of the file: `rig_bridge_api` exists while Rig Bridge loads your modules (an extension may not leave a module of its own name behind). A starting point is in `examples/tail_module.py`. The profile format is: `{side}`, a `?` prefix for optional bones, `extends`, `strip_prefix`, per-part `settings` and a `parent` socket.
 
 ## Tests
 ```
@@ -105,6 +105,8 @@ blender -b --factory-startup --python tests/test_bp_interop.py  -- <folder conta
 * `test_bp_interop.py` runs the full round trip with the real Bulletproof Retarget installed from its release zip: Mixamo mocap → UE5 character → Bake to Control Rig → Bake to Skeleton → Daz G8 → Daz control rig. Each step is compared with a plain, unrigged retarget.
 
 ## Changelog
+* **1.2.1**
+  * **No "Policy violation with top level module: rig_bridge_api" warning** in Preferences ▸ Add-ons. Custom modules still write `from rig_bridge_api import Module, register_module`, at the top of the file.
 * **1.2.0**
   * **Docs:** a knee or elbow that the source bends backwards does not come out "straight, a centimetre or two off" in IK, as 1.1.0 said: it is bent forwards by the same angle, and can sit several centimetres off (7 cm at most on a 3-minute fight take). Nothing changed in the bake; see Known limitations.
 * **1.1.0**
